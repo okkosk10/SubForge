@@ -1,0 +1,110 @@
+import fs from 'node:fs'
+import type { CreateJobInput, Job, JobStatus, PipelineStep, SourceLanguage } from '@shared/domain'
+import { SOURCE_LANGUAGES } from '@shared/domain'
+import { JobRepository } from './jobRepository'
+import { JobScheduler } from './jobScheduler'
+import { computeDefaultOutputPath, hasSupportedMediaExtension } from './policies'
+
+export class JobService {
+  constructor(
+    private readonly repository: JobRepository,
+    private readonly scheduler: JobScheduler,
+  ) {}
+
+  list(status?: JobStatus): Job[] {
+    return this.repository.list(status)
+  }
+
+  getById(id: string): { job: Job; events: ReturnType<JobRepository['getEvents']> } | null {
+    const job = this.repository.getById(id)
+    if (!job) {
+      return null
+    }
+
+    return {
+      job,
+      events: this.repository.getEvents(id),
+    }
+  }
+
+  createJob(input: CreateJobInput): Job {
+    this.ensureValidSourceLanguage(input.sourceLanguage)
+    this.ensureValidSourcePath(input.sourcePath)
+
+    const active = this.repository.getActiveBySourcePath(input.sourcePath)
+    if (active) {
+      throw new Error('An active job already exists for the selected file.')
+    }
+
+    const job = this.repository.insert({
+      sourcePath: input.sourcePath,
+      outputPath: computeDefaultOutputPath(input.sourcePath),
+      sourceLanguage: input.sourceLanguage,
+      targetLanguage: 'ko',
+    })
+
+    return job
+  }
+
+  getRunningJob(): Job | null {
+    return this.repository.getRunningJob()
+  }
+
+  getQueueSnapshot(): { waitingJobs: Job[]; runningJobs: Job[]; nextJob: Job | null } {
+    const waitingJobs = this.repository.list('WAITING').sort(compareCreatedAtAscending)
+    const running = this.repository.getRunningJob()
+    const runningJobs = running ? [running] : []
+    const nextJob = this.scheduler.pickNext(waitingJobs, runningJobs)
+
+    return { waitingJobs, runningJobs, nextJob }
+  }
+
+  updateJobProgress(jobId: string, progress: number, step: PipelineStep | null): void {
+    if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
+      throw new Error('Progress must be between 0 and 100.')
+    }
+    this.repository.updateProgress(jobId, Math.round(progress), step)
+  }
+
+  validateSelectedMedia(sourcePath: string): {
+    sourcePath: string
+    fileName: string
+    suggestedOutputPath: string
+  } {
+    this.ensureValidSourcePath(sourcePath)
+    return {
+      sourcePath,
+      fileName: sourcePath.split(/[/\\]/).pop() ?? sourcePath,
+      suggestedOutputPath: computeDefaultOutputPath(sourcePath),
+    }
+  }
+
+  private ensureValidSourceLanguage(language: SourceLanguage): void {
+    if (!SOURCE_LANGUAGES.includes(language)) {
+      throw new Error('Unsupported source language.')
+    }
+  }
+
+  private ensureValidSourcePath(sourcePath: string): void {
+    if (!sourcePath || typeof sourcePath !== 'string') {
+      throw new Error('Source path is required.')
+    }
+
+    if (!fs.existsSync(sourcePath)) {
+      throw new Error('Selected file does not exist.')
+    }
+
+    const stat = fs.statSync(sourcePath)
+    if (!stat.isFile()) {
+      throw new Error('Selected path is not a file.')
+    }
+
+    if (!hasSupportedMediaExtension(sourcePath)) {
+      throw new Error('Unsupported media extension.')
+    }
+  }
+}
+
+function compareCreatedAtAscending(a: Job, b: Job): number {
+  return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+}

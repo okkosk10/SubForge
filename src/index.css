@@ -1,0 +1,36 @@
+:root {
+  --text-main: #1f2b37;
+  --heading-main: #111f2d;
+  --font-ui: 'IBM Plex Sans KR', 'Noto Sans KR', 'Segoe UI', sans-serif;
+  --font-heading: 'Space Grotesk', 'IBM Plex Sans KR', 'Segoe UI', sans-serif;
+  font-family: var(--font-ui);
+  color: var(--text-main);
+  background: #e9eef5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2 {
+  margin: 0;
+  color: var(--heading-main);
+  font-family: var(--font-heading);
+}
+
+p {
+  margin: 0;
+}

@@ -1,0 +1,4 @@
+dist
+coverage
+dist-electron
+node_modules
