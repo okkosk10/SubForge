@@ -6,6 +6,12 @@ import type {
   SelectableMediaFile,
 } from './domain'
 
+export interface QueueSnapshot {
+  waitingJobs: Job[]
+  runningJobs: Job[]
+  nextJob: Job | null
+}
+
 export interface CreateJobResponse {
   ok: boolean
   job?: Job
@@ -29,6 +35,7 @@ export interface SubForgeApi {
     get: (id: string) => Promise<JobDetailPayload | null>
     create: (input: CreateJobInput) => Promise<CreateJobResponse>
     getRunning: () => Promise<Job | null>
+    getQueueSnapshot: () => Promise<QueueSnapshot>
   }
   files: {
     selectMedia: () => Promise<SelectMediaResponse>

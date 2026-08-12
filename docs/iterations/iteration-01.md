@@ -17,5 +17,14 @@ AI 기능을 구현하기 전에 Persistent Job Queue와 데스크톱 애플리�
 - [x] 앱 재시작 후 Job 복원
 - [x] 기본 테스트
 
+## 완료 조건 시나리오
+- 영상 선택
+- Job 생성
+- WAITING 저장
+- Job Detail 확인
+- 앱 종료
+- 앱 재시작
+- 동일 Job 복원
+
 ## 제외 범위 재확인
 Whisper, FFmpeg, VAD, STT, 번역, SRT 생성 등 AI 파이프라인 실제 처리는 본 iteration에 포함하지 않는다.

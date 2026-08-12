@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import type { CreateJobInput, Job, JobStatus, PipelineStep, SourceLanguage } from '@shared/domain'
+import type { QueueSnapshot } from '@shared/ipc'
 import { SOURCE_LANGUAGES } from '@shared/domain'
 import { JobRepository } from './jobRepository'
 import { JobScheduler } from './jobScheduler'
@@ -50,7 +51,7 @@ export class JobService {
     return this.repository.getRunningJob()
   }
 
-  getQueueSnapshot(): { waitingJobs: Job[]; runningJobs: Job[]; nextJob: Job | null } {
+  getQueueSnapshot(): QueueSnapshot {
     const waitingJobs = this.repository.list('WAITING').sort(compareCreatedAtAscending)
     const running = this.repository.getRunningJob()
     const runningJobs = running ? [running] : []

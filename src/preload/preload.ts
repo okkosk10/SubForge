@@ -8,6 +8,7 @@ const api: SubForgeApi = {
     get: (id: string) => ipcRenderer.invoke('jobs:get', id),
     create: (input: CreateJobInput) => ipcRenderer.invoke('jobs:create', input),
     getRunning: () => ipcRenderer.invoke('jobs:getRunning'),
+    getQueueSnapshot: () => ipcRenderer.invoke('jobs:getQueueSnapshot'),
   },
   files: {
     selectMedia: () => ipcRenderer.invoke('files:selectMedia'),

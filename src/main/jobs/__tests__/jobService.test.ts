@@ -9,12 +9,14 @@ import { JobService } from '../jobService'
 
 let tempDir = ''
 let db: DbClient | null = null
+let repository: JobRepository
 let service: JobService
 
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subforge-test-'))
   db = new DbClient(':memory:')
-  service = new JobService(new JobRepository(db.connection), new JobScheduler())
+  repository = new JobRepository(db.connection)
+  service = new JobService(repository, new JobScheduler())
 })
 
 afterEach(() => {
@@ -82,5 +84,50 @@ describe('JobService', () => {
     expect(() => service.createJob({ sourcePath, sourceLanguage: 'ja' })).toThrow(
       'Unsupported media extension.',
     )
+  })
+
+  it('returns oldest waiting as next job when no running job exists', () => {
+    const aPath = createMediaFile('a.mp4')
+    const bPath = createMediaFile('b.mp4')
+
+    const jobA = service.createJob({ sourcePath: aPath, sourceLanguage: 'ja' })
+    service.createJob({ sourcePath: bPath, sourceLanguage: 'en' })
+
+    const snapshot = service.getQueueSnapshot()
+
+    expect(snapshot.waitingJobs.length).toBe(2)
+    expect(snapshot.runningJobs).toEqual([])
+    expect(snapshot.nextJob?.id).toBe(jobA.id)
+  })
+
+  it('returns null next job when a running job already exists', () => {
+    const runningPath = createMediaFile('running.mp4')
+    const waitingPath = createMediaFile('waiting.mp4')
+
+    const running = repository.insert({
+      sourcePath: runningPath,
+      outputPath: runningPath.replace('.mp4', '.ko.srt'),
+      sourceLanguage: 'ja',
+      targetLanguage: 'ko',
+    })
+
+    db?.connection
+      .prepare(
+        `UPDATE jobs
+         SET status = 'RUNNING',
+             started_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(new Date().toISOString(), new Date().toISOString(), running.id)
+
+    service.createJob({ sourcePath: waitingPath, sourceLanguage: 'en' })
+
+    const snapshot = service.getQueueSnapshot()
+
+    expect(snapshot.runningJobs.length).toBe(1)
+    expect(snapshot.runningJobs[0]?.id).toBe(running.id)
+    expect(snapshot.waitingJobs.length).toBe(1)
+    expect(snapshot.nextJob).toBeNull()
   })
 })
