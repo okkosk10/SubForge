@@ -3,6 +3,7 @@ import type {
   Job,
   JobEvent,
   JobStatus,
+  Segment,
   SelectableMediaFile,
 } from './domain'
 
@@ -27,6 +28,7 @@ export interface SelectMediaResponse {
 export interface JobDetailPayload {
   job: Job
   events: JobEvent[]
+  segments: Segment[]
 }
 
 export interface SubForgeApi {

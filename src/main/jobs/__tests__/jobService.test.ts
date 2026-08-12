@@ -45,6 +45,19 @@ class FakeWorkerClient implements WorkerClient {
       },
     }
   }
+
+  async transcribe(): Promise<import('@shared/domain').TranscriptionResult> {
+    return {
+      segments: [
+        {
+          sequence: 0,
+          startMs: 1200,
+          endMs: 4150,
+          text: 'こんにちは。',
+        },
+      ],
+    }
+  }
 }
 
 class FailOnceWorkerClient implements WorkerClient {
@@ -76,6 +89,19 @@ class FailOnceWorkerClient implements WorkerClient {
         sampleRate: 48000,
         channels: 2,
       },
+    }
+  }
+
+  async transcribe(): Promise<import('@shared/domain').TranscriptionResult> {
+    return {
+      segments: [
+        {
+          sequence: 0,
+          startMs: 100,
+          endMs: 500,
+          text: 'transcribed',
+        },
+      ],
     }
   }
 }
@@ -234,7 +260,7 @@ describe('JobService', () => {
     ).toBe(true)
   })
 
-  it('starts waiting job on tick with RUNNING/PROBING transition', async () => {
+  it('starts waiting job on tick with RUNNING/PROBING then TRANSCRIBING transition', async () => {
     const sourcePath = createMediaFile('tick.mp4')
     const waiting = repository.insert({
       sourcePath,
@@ -250,10 +276,11 @@ describe('JobService', () => {
 
     const updated = repository.getById(waiting.id)
     expect(updated?.status).toBe('RUNNING')
-    expect(updated?.currentStep).toBe('PROBING')
+    expect(updated?.currentStep).toBe('TRANSCRIBING')
 
     const events = repository.getEvents(waiting.id)
     expect(events.some((event) => event.message === 'Media probing completed.')).toBe(true)
+    expect(events.some((event) => event.message.includes('Transcription completed.'))).toBe(true)
   })
 
   it('marks failed when probing fails on tick', async () => {
@@ -328,6 +355,6 @@ describe('JobService', () => {
     const secondUpdated = repository.getById(second.id)
     expect(firstUpdated?.status).toBe('FAILED')
     expect(secondUpdated?.status).toBe('RUNNING')
-    expect(secondUpdated?.currentStep).toBe('PROBING')
+    expect(secondUpdated?.currentStep).toBe('TRANSCRIBING')
   })
 })

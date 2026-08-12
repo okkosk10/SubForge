@@ -25,8 +25,9 @@ export function parseWorkerResponseLine(line: string): WorkerResponse {
   }
 
   if (value.ok) {
-    if (value.type !== 'PROBE_RESULT') {
-      throw new WorkerError('WORKER_PROTOCOL_ERROR', 'Worker success response type must be PROBE_RESULT.')
+    const allowedSuccessTypes = new Set(['PROBE_RESULT', 'TRANSCRIBE_RESULT'])
+    if (!allowedSuccessTypes.has(value.type)) {
+      throw new WorkerError('WORKER_PROTOCOL_ERROR', 'Worker success response type is unsupported.')
     }
     if (!value.payload || typeof value.payload !== 'object') {
       throw new WorkerError('WORKER_PROTOCOL_ERROR', 'Worker success payload is missing.')

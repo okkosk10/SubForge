@@ -2,14 +2,16 @@ import crypto from 'node:crypto'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import type { ProbeMetadata, WorkerRequest } from '@shared/domain'
+import type { ProbeMetadata, SourceLanguage, TranscriptionResult, WorkerRequest } from '@shared/domain'
 import { WorkerError } from './errors'
 import { parseWorkerResponseLine } from './workerProtocol'
 
 const PROBE_TIMEOUT_MS = 30_000
+const TRANSCRIBE_TIMEOUT_MS = 30 * 60 * 1000
 
 export interface WorkerClient {
   probe(sourcePath: string): Promise<ProbeMetadata>
+  transcribe(sourcePath: string, sourceLanguage: SourceLanguage): Promise<TranscriptionResult>
   dispose(): void
 }
 
@@ -32,13 +34,28 @@ export class PythonWorkerClient implements WorkerClient {
   }
 
   async probe(sourcePath: string): Promise<ProbeMetadata> {
-    const requestId = crypto.randomUUID()
     const request: WorkerRequest = {
-      requestId,
+      requestId: crypto.randomUUID(),
       type: 'PROBE',
       payload: { sourcePath },
     }
 
+    const response = await this.runRequest<ProbeMetadata>(request, this.timeoutMs)
+    return response
+  }
+
+  async transcribe(sourcePath: string, sourceLanguage: SourceLanguage): Promise<TranscriptionResult> {
+    const request: WorkerRequest = {
+      requestId: crypto.randomUUID(),
+      type: 'TRANSCRIBE',
+      payload: { sourcePath, sourceLanguage },
+    }
+
+    const response = await this.runRequest<TranscriptionResult>(request, TRANSCRIBE_TIMEOUT_MS)
+    return response
+  }
+
+  private async runRequest<T>(request: WorkerRequest, timeoutMs: number): Promise<T> {
     const workerMainPath = resolveWorkerMainPath()
     const args = [workerMainPath, '--request', JSON.stringify(request)]
 
@@ -47,7 +64,7 @@ export class PythonWorkerClient implements WorkerClient {
       windowsHide: true,
     })
 
-    return await new Promise<ProbeMetadata>((resolve, reject) => {
+    return await new Promise<T>((resolve, reject) => {
       let settled = false
       let stdoutBuffer = ''
       let stderrBuffer = ''
@@ -59,7 +76,7 @@ export class PythonWorkerClient implements WorkerClient {
         settled = true
         child.kill('SIGKILL')
         reject(new WorkerError('WORKER_TIMEOUT', 'Worker did not respond in time.'))
-      }, this.timeoutMs)
+      }, timeoutMs)
 
       const finalizeError = (error: Error) => {
         if (settled) {
@@ -115,7 +132,7 @@ export class PythonWorkerClient implements WorkerClient {
           return
         }
 
-        if (response.requestId !== requestId) {
+        if (response.requestId !== request.requestId) {
           settled = true
           reject(new WorkerError('WORKER_PROTOCOL_ERROR', 'Worker response requestId mismatch.'))
           return
@@ -123,7 +140,7 @@ export class PythonWorkerClient implements WorkerClient {
 
         if (response.ok) {
           settled = true
-          resolve(response.payload)
+          resolve(response.payload as T)
           return
         }
 
@@ -131,7 +148,6 @@ export class PythonWorkerClient implements WorkerClient {
         reject(new WorkerError(response.error.code, response.error.message))
 
         if (code !== 0 && stderrBuffer.trim()) {
-          // Keep stderr available in logs for diagnostics while protocol remains stdout-only.
           console.error(`[python-worker] exited with code=${code}: ${stderrBuffer.trim()}`)
         }
       })

@@ -1,1 +1,2 @@
-# Iteration 02 probing worker uses only Python standard library.
+# Iteration 03 transcription worker uses faster-whisper for source-language transcription.
+faster-whisper==1.1.1

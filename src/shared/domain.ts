@@ -97,6 +97,17 @@ export interface ProbeMetadata {
     | null
 }
 
+export interface TranscriptionSegment {
+  sequence: number
+  startMs: number
+  endMs: number
+  text: string
+}
+
+export interface TranscriptionResult {
+  segments: TranscriptionSegment[]
+}
+
 export type WorkerRequest =
   | {
       requestId: string
@@ -105,13 +116,28 @@ export type WorkerRequest =
         sourcePath: string
       }
     }
+  | {
+      requestId: string
+      type: 'TRANSCRIBE'
+      payload: {
+        sourcePath: string
+        sourceLanguage: SourceLanguage
+      }
+    }
 
-export type WorkerSuccessResponse = {
-  requestId: string
-  ok: true
-  type: 'PROBE_RESULT'
-  payload: ProbeMetadata
-}
+export type WorkerSuccessResponse =
+  | {
+      requestId: string
+      ok: true
+      type: 'PROBE_RESULT'
+      payload: ProbeMetadata
+    }
+  | {
+      requestId: string
+      ok: true
+      type: 'TRANSCRIBE_RESULT'
+      payload: TranscriptionResult
+    }
 
 export type WorkerErrorResponse = {
   requestId: string

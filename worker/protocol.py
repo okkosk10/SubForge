@@ -10,11 +10,11 @@ class WorkerErrorInfo:
     message: str
 
 
-def success_response(request_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def success_response(request_id: str, payload: Dict[str, Any], response_type: str = "PROBE_RESULT") -> Dict[str, Any]:
     return {
         "requestId": request_id,
         "ok": True,
-        "type": "PROBE_RESULT",
+        "type": response_type,
         "payload": payload,
     }
 

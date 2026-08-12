@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from probe import probe_media
 from protocol import error_response, success_response
+from transcribe import transcribe_media
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,7 +25,8 @@ def parse_request(raw: str) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("WORKER_PROTOCOL_ERROR:Request must be a JSON object")
 
-    if value.get("type") != "PROBE":
+    request_type = value.get("type")
+    if request_type not in {"PROBE", "TRANSCRIBE"}:
         raise ValueError("WORKER_PROTOCOL_ERROR:Unsupported request type")
 
     if not isinstance(value.get("requestId"), str):
@@ -33,6 +35,10 @@ def parse_request(raw: str) -> Dict[str, Any]:
     payload = value.get("payload")
     if not isinstance(payload, dict) or not isinstance(payload.get("sourcePath"), str):
         raise ValueError("WORKER_PROTOCOL_ERROR:payload.sourcePath is required")
+
+    if request_type == "TRANSCRIBE":
+        if not isinstance(payload.get("sourceLanguage"), str):
+            raise ValueError("WORKER_PROTOCOL_ERROR:payload.sourceLanguage is required")
 
     return value
 
@@ -58,14 +64,24 @@ def main() -> int:
 
     request_id = request["requestId"]
     source_path = request["payload"]["sourcePath"]
+    request_type = request["type"]
 
     try:
-        metadata = probe_media(source_path)
-        response = success_response(request_id, metadata)
+        if request_type == "PROBE":
+            metadata = probe_media(source_path)
+            response = success_response(request_id, metadata, "PROBE_RESULT")
+        else:
+            source_language = request["payload"]["sourceLanguage"]
+            result = transcribe_media(source_path, source_language)
+            response = success_response(request_id, result, "TRANSCRIBE_RESULT")
+
         print(json.dumps(response, ensure_ascii=True), flush=True)
         return 0
     except FileNotFoundError:
-        response = error_response(request_id, "FFPROBE_NOT_FOUND", "ffprobe executable was not found on PATH.")
+        if request_type == "PROBE":
+            response = error_response(request_id, "FFPROBE_NOT_FOUND", "ffprobe executable was not found on PATH.")
+        else:
+            response = error_response(request_id, "WHISPER_NOT_AVAILABLE", "Whisper executable dependencies are not available.")
         print(json.dumps(response, ensure_ascii=True), flush=True)
         return 2
     except Exception as error:  # noqa: BLE001

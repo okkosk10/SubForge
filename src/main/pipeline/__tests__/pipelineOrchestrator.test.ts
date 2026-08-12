@@ -34,6 +34,19 @@ class FakeWorkerClient implements WorkerClient {
       },
     }
   }
+
+  async transcribe(): Promise<import('@shared/domain').TranscriptionResult> {
+    return {
+      segments: [
+        {
+          sequence: 0,
+          startMs: 1200,
+          endMs: 4150,
+          text: 'こんにちは。今日は少し早く起きました。',
+        },
+      ],
+    }
+  }
 }
 
 function seedWaitingJob(repository: JobRepository) {

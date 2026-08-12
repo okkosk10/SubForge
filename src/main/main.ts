@@ -8,6 +8,7 @@ import { JobScheduler } from './jobs/jobScheduler'
 import { JobService } from './jobs/jobService'
 import { registerIpcHandlers } from './ipc/registerIpcHandlers'
 import { PipelineOrchestrator } from './pipeline/pipelineOrchestrator'
+import { SegmentRepository } from './segments/segmentRepository'
 import { PythonWorkerClient } from './worker/pythonWorkerClient'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -45,9 +46,10 @@ app.whenReady().then(() => {
 
   const repository = new JobRepository(dbClient.connection)
   const scheduler = new JobScheduler()
+  const segmentRepository = new SegmentRepository(dbClient.connection)
   workerClient = new PythonWorkerClient()
-  const orchestrator = new PipelineOrchestrator(repository, workerClient)
-  const service = new JobService(repository, scheduler, orchestrator)
+  const orchestrator = new PipelineOrchestrator(repository, workerClient, segmentRepository)
+  const service = new JobService(repository, scheduler, orchestrator, segmentRepository)
   service.recoverInterruptedJobs()
   service.triggerScheduler()
   registerIpcHandlers(ipcMain, service)

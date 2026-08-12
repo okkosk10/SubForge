@@ -5,6 +5,7 @@ import { SOURCE_LANGUAGES } from '@shared/domain'
 import { JobRepository } from './jobRepository'
 import { JobScheduler } from './jobScheduler'
 import { computeDefaultOutputPath, hasSupportedMediaExtension } from './policies'
+import type { SegmentRepository } from '../segments/segmentRepository'
 import type { PipelineOrchestrator } from '../pipeline/pipelineOrchestrator'
 
 export class JobService {
@@ -14,13 +15,14 @@ export class JobService {
     private readonly repository: JobRepository,
     private readonly scheduler: JobScheduler,
     private readonly orchestrator?: PipelineOrchestrator,
+    private readonly segmentRepository?: SegmentRepository,
   ) {}
 
   list(status?: JobStatus): Job[] {
     return this.repository.list(status)
   }
 
-  getById(id: string): { job: Job; events: ReturnType<JobRepository['getEvents']> } | null {
+  getById(id: string): { job: Job; events: ReturnType<JobRepository['getEvents']>; segments: ReturnType<SegmentRepository['listByJobId']> } | null {
     const job = this.repository.getById(id)
     if (!job) {
       return null
@@ -29,6 +31,7 @@ export class JobService {
     return {
       job,
       events: this.repository.getEvents(id),
+      segments: this.segmentRepository?.listByJobId(id) ?? [],
     }
   }
 
@@ -107,7 +110,7 @@ export class JobService {
         return
       }
 
-      await this.orchestrator.runProbe(nextJob.id, nextJob.sourcePath)
+      await this.orchestrator.run(nextJob.id, nextJob.sourcePath, nextJob.sourceLanguage)
     } finally {
       this.isTicking = false
     }

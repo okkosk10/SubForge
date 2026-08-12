@@ -11,14 +11,26 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
 
   useEffect(() => {
     let isMounted = true
-    window.subForge.jobs.get(jobId).then((payload) => {
-      if (isMounted) {
-        setDetail(payload)
-      }
-    })
+    let timer: number | null = null
+
+    const refresh = () => {
+      window.subForge.jobs.get(jobId).then((payload) => {
+        if (isMounted) {
+          setDetail(payload)
+          if (payload?.job.status === 'RUNNING') {
+            timer = window.setTimeout(refresh, 2000)
+          }
+        }
+      })
+    }
+
+    refresh()
 
     return () => {
       isMounted = false
+      if (timer !== null) {
+        window.clearTimeout(timer)
+      }
     }
   }, [jobId])
 
@@ -31,7 +43,7 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     )
   }
 
-  const { job, events } = detail
+  const { job, events, segments } = detail
 
   return (
     <section className="panel">
@@ -84,7 +96,27 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
       </ul>
 
       <h2>Segments</h2>
-      <p className="muted">Transcription results will appear here after processing.</p>
+      {segments.length === 0 ? (
+        <p className="muted">Transcription results will appear here after processing.</p>
+      ) : (
+        <ul className="segments-list">
+          {segments.map((segment) => (
+            <li key={segment.id}>
+              <strong>#{segment.sequence + 1}</strong>
+              {' '}
+              {formatTimestamp(segment.startMs)} → {formatTimestamp(segment.endMs)}
+              <div>{segment.sourceText}</div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
+}
+
+function formatTimestamp(ms: number): string {
+  const totalSeconds = Math.max(0, ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${String(minutes).padStart(2, '0')}:${seconds.toFixed(3).padStart(6, '0')}`
 }
