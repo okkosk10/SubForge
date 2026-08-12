@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import type { Database as SQLiteDatabase } from 'better-sqlite3'
 import type { Segment } from '@shared/domain'
+import { WorkerError } from '../worker/errors'
 
 export interface SegmentInput {
   sequence: number
@@ -72,6 +73,66 @@ export class SegmentRepository {
           now,
           now,
         )
+      }
+    })
+
+    transaction()
+  }
+
+  updateTranslations(
+    jobId: string,
+    translations: Array<{ sequence: number; translatedText: string }>,
+  ): void {
+    const normalized = translations.map((translation) => ({
+      sequence: Number(translation.sequence),
+      translatedText: String(translation.translatedText ?? '').trim(),
+    }))
+
+    if (normalized.length === 0) {
+      throw new WorkerError('INVALID_TRANSLATION_RESULT', 'Translation response is empty.')
+    }
+
+    const duplicates = normalized.filter(
+      (translation, index, list) => list.findIndex((value) => value.sequence === translation.sequence) !== index,
+    )
+    if (duplicates.length > 0) {
+      throw new WorkerError('INVALID_TRANSLATION_RESULT', 'Duplicate translation sequences are not allowed.')
+    }
+
+    if (normalized.some((translation) => !translation.translatedText)) {
+      throw new WorkerError('INVALID_TRANSLATION_RESULT', 'Translated text cannot be empty.')
+    }
+
+    const expectedSequences = this.listByJobId(jobId)
+      .filter((segment) => segment.sourceText && segment.sourceText.trim().length > 0)
+      .map((segment) => segment.sequence)
+      .sort((a, b) => a - b)
+    const actualSequences = normalized.map((translation) => translation.sequence).sort((a, b) => a - b)
+
+    if (expectedSequences.length !== actualSequences.length) {
+      throw new WorkerError('INVALID_TRANSLATION_RESULT', 'Translation response count does not match source segments.')
+    }
+
+    if (expectedSequences.some((sequence, index) => sequence !== actualSequences[index])) {
+      throw new WorkerError(
+        'INVALID_TRANSLATION_RESULT',
+        'Translation response sequence set does not match source segments.',
+      )
+    }
+
+    const transaction = this.db.transaction(() => {
+      const update = this.db.prepare(
+        `UPDATE segments
+         SET translated_text = ?, updated_at = ?
+         WHERE job_id = ? AND sequence = ?`,
+      )
+      const now = new Date().toISOString()
+
+      for (const translation of normalized) {
+        const result = update.run(translation.translatedText, now, jobId, translation.sequence)
+        if (result.changes === 0) {
+          throw new WorkerError('INVALID_TRANSLATION_RESULT', `No source segment found for sequence ${translation.sequence}.`)
+        }
       }
     })
 

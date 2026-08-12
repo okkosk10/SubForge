@@ -7,6 +7,7 @@ import { JobRepository } from '../jobRepository'
 import { JobScheduler } from '../jobScheduler'
 import { JobService } from '../jobService'
 import { PipelineOrchestrator } from '../../pipeline/pipelineOrchestrator'
+import { SegmentRepository } from '../../segments/segmentRepository'
 import type { WorkerClient } from '../../worker/pythonWorkerClient'
 import { WorkerError } from '../../worker/errors'
 
@@ -261,6 +262,10 @@ describe('JobService', () => {
   })
 
   it('starts waiting job on tick with RUNNING/PROBING then TRANSCRIBING transition', async () => {
+    if (!db) {
+      throw new Error('Database was not initialized.')
+    }
+
     const sourcePath = createMediaFile('tick.mp4')
     const waiting = repository.insert({
       sourcePath,
@@ -269,18 +274,20 @@ describe('JobService', () => {
       targetLanguage: 'ko',
     })
 
-    const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'))
-    const runService = new JobService(repository, new JobScheduler(), orchestrator)
+    const segmentRepository = new SegmentRepository(db.connection)
+    const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'), segmentRepository)
+    const runService = new JobService(repository, new JobScheduler(), orchestrator, segmentRepository)
 
     await runService.tick()
 
     const updated = repository.getById(waiting.id)
     expect(updated?.status).toBe('RUNNING')
-    expect(updated?.currentStep).toBe('TRANSCRIBING')
+    expect(updated?.currentStep).toBe('TRANSLATING')
 
     const events = repository.getEvents(waiting.id)
     expect(events.some((event) => event.message === 'Media probing completed.')).toBe(true)
     expect(events.some((event) => event.message.includes('Transcription completed.'))).toBe(true)
+    expect(events.some((event) => event.message.includes('Translation completed.'))).toBe(true)
   })
 
   it('marks failed when probing fails on tick', async () => {
@@ -327,6 +334,10 @@ describe('JobService', () => {
   })
 
   it('releases tick lock after failure so next tick can run', async () => {
+    if (!db) {
+      throw new Error('Database was not initialized.')
+    }
+
     const firstPath = createMediaFile('first.mp4')
     const secondPath = createMediaFile('second.mp4')
 
@@ -344,8 +355,9 @@ describe('JobService', () => {
       targetLanguage: 'ko',
     })
 
-    const orchestrator = new PipelineOrchestrator(repository, new FailOnceWorkerClient())
-    const runService = new JobService(repository, new JobScheduler(), orchestrator)
+    const segmentRepository = new SegmentRepository(db.connection)
+    const orchestrator = new PipelineOrchestrator(repository, new FailOnceWorkerClient(), segmentRepository)
+    const runService = new JobService(repository, new JobScheduler(), orchestrator, segmentRepository)
 
     await expect(runService.tick()).rejects.toThrow('First probe failed.')
 
@@ -355,6 +367,6 @@ describe('JobService', () => {
     const secondUpdated = repository.getById(second.id)
     expect(firstUpdated?.status).toBe('FAILED')
     expect(secondUpdated?.status).toBe('RUNNING')
-    expect(secondUpdated?.currentStep).toBe('TRANSCRIBING')
+    expect(secondUpdated?.currentStep).toBe('TRANSLATING')
   })
 })

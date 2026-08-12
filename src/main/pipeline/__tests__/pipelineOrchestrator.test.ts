@@ -4,6 +4,18 @@ import { JobRepository } from '../../jobs/jobRepository'
 import { PipelineOrchestrator } from '../pipelineOrchestrator'
 import type { WorkerClient } from '../../worker/pythonWorkerClient'
 import { WorkerError } from '../../worker/errors'
+import type { TranslatorProvider } from '../../translation/translatorProvider'
+
+class FakeTranslatorProvider implements TranslatorProvider {
+  constructor(private readonly result: { sequence: number; translatedText: string }[] | null = null) {}
+
+  async translateSegments(): Promise<{ sequence: number; translatedText: string }[]> {
+    if (!this.result) {
+      throw new WorkerError('TRANSLATION_FAILED', 'Translation failed.')
+    }
+    return this.result
+  }
+}
 
 class FakeWorkerClient implements WorkerClient {
   constructor(private readonly behavior: 'success' | 'failure') {}
@@ -108,20 +120,83 @@ describe('PipelineOrchestrator', () => {
     }
   })
 
-  it('finalizes a successful transcription job as COMPLETED with 100% progress', async () => {
+  it('keeps transcription success in RUNNING/TRANSCRIBING instead of COMPLETED', async () => {
     const db = new DbClient(':memory:')
     try {
       const repository = new JobRepository(db.connection)
       const created = seedWaitingJob(repository)
       const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'))
 
-      await orchestrator.run(created.id, created.sourcePath, 'ja')
+      await orchestrator.runTranscription(created.id, created.sourcePath, 'ja')
 
       const job = repository.getById(created.id)
-      expect(job?.status).toBe('COMPLETED')
+      expect(job?.status).toBe('RUNNING')
       expect(job?.currentStep).toBe('TRANSCRIBING')
-      expect(job?.progress).toBe(100)
-      expect(job?.completedAt).not.toBeNull()
+      expect(job?.progress).toBeLessThan(100)
+      expect(job?.completedAt).toBeNull()
+    } finally {
+      db.close()
+    }
+  })
+
+  it('runs translation after transcription and stores translated text without completing the job', async () => {
+    const db = new DbClient(':memory:')
+    try {
+      const repository = new JobRepository(db.connection)
+      const created = seedWaitingJob(repository)
+      const segmentRepository = new (await import('../../segments/segmentRepository')).SegmentRepository(db.connection)
+      segmentRepository.replaceForJob(created.id, [
+        { sequence: 0, startMs: 0, endMs: 1000, text: 'こんにちは。今日は少し早く起きました。' },
+        { sequence: 1, startMs: 1000, endMs: 2000, text: '午前中は家で仕事をしていました。' },
+      ])
+      const translator = new FakeTranslatorProvider([
+        { sequence: 0, translatedText: '안녕하세요. 오늘은 조금 일찍 일어났어요.' },
+        { sequence: 1, translatedText: '오전에는 집에서 일을 하고 있었어요.' },
+      ])
+      const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'), segmentRepository, translator)
+
+      await orchestrator.runTranslation(created.id, 'ja')
+
+      const job = repository.getById(created.id)
+      expect(job?.status).toBe('RUNNING')
+      expect(job?.currentStep).toBe('TRANSLATING')
+      expect(job?.progress).toBe(70)
+      expect(job?.completedAt).toBeNull()
+
+      const segments = segmentRepository.listByJobId(created.id)
+      expect(segments).toHaveLength(2)
+      expect(segments.map((segment) => segment.translatedText)).toEqual([
+        '안녕하세요. 오늘은 조금 일찍 일어났어요.',
+        '오전에는 집에서 일을 하고 있었어요.',
+      ])
+    } finally {
+      db.close()
+    }
+  })
+
+  it('marks FAILED with error details when translation fails', async () => {
+    const db = new DbClient(':memory:')
+    try {
+      const repository = new JobRepository(db.connection)
+      const created = seedWaitingJob(repository)
+      const segmentRepository = new (await import('../../segments/segmentRepository')).SegmentRepository(db.connection)
+      segmentRepository.replaceForJob(created.id, [
+        { sequence: 0, startMs: 0, endMs: 1000, text: 'こんにちは。' },
+      ])
+      const orchestrator = new PipelineOrchestrator(
+        repository,
+        new FakeWorkerClient('success'),
+        segmentRepository,
+        new FakeTranslatorProvider(null),
+      )
+
+      await expect(orchestrator.runTranslation(created.id, 'ja')).rejects.toThrow('Translation failed.')
+
+      const job = repository.getById(created.id)
+      expect(job?.status).toBe('FAILED')
+      expect(job?.currentStep).toBe('TRANSLATING')
+      expect(job?.errorCode).toBe('TRANSLATION_FAILED')
+      expect(job?.errorMessage).toBe('Translation failed.')
     } finally {
       db.close()
     }

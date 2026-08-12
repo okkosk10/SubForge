@@ -71,4 +71,27 @@ describe('SegmentRepository', () => {
       db.close()
     }
   })
+
+  it('updates translations atomically and preserves source_text', () => {
+    const db = new DbClient(':memory:')
+    try {
+      const repository = new SegmentRepository(db.connection)
+      ensureJob(db.connection, 'job-3')
+      repository.replaceForJob('job-3', [
+        { sequence: 0, startMs: 0, endMs: 200, text: 'こんにちは。' },
+        { sequence: 1, startMs: 200, endMs: 500, text: '今日は少し早く起きました。' },
+      ])
+
+      repository.updateTranslations('job-3', [
+        { sequence: 0, translatedText: '안녕하세요.' },
+        { sequence: 1, translatedText: '오늘은 조금 일찍 일어났어요.' },
+      ])
+
+      const list = repository.listByJobId('job-3')
+      expect(list.map((segment) => segment.sourceText)).toEqual(['こんにちは。', '今日は少し早く起きました。'])
+      expect(list.map((segment) => segment.translatedText)).toEqual(['안녕하세요.', '오늘은 조금 일찍 일어났어요.'])
+    } finally {
+      db.close()
+    }
+  })
 })

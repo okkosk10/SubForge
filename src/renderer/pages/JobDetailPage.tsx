@@ -105,7 +105,12 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
               <strong>#{segment.sequence + 1}</strong>
               {' '}
               {formatTimestamp(segment.startMs)} → {formatTimestamp(segment.endMs)}
-              <div>{segment.sourceText}</div>
+              <div>
+                <strong>원문:</strong> {segment.sourceText ?? '—'}
+              </div>
+              <div>
+                <strong>한국어:</strong> {segment.translatedText ?? 'Translation pending'}
+              </div>
             </li>
           ))}
         </ul>

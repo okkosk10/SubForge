@@ -61,3 +61,8 @@ Whisper transcription을 실제로 연결하고, 결과를 SQLite의 `segments` 
 - Translation 및 Korean subtitle generation
 - persistent worker 전환
 - VAD/quality refinement
+
+## 의미 수정
+- Iteration 03은 transcription 기능 검증 완료에 초점을 둔다.
+- SubForge 전체 Job의 최종 `COMPLETED`는 EXPORTING 성공 시점 이후에만 사용한다.
+- 중간 단계에서 transcription이 완료돼도 job은 `RUNNING` 상태를 유지하고, 이후 `TRANSLATING` 단계로 이어진다.
