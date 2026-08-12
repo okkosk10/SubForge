@@ -10,6 +10,8 @@ import { LocalTranslatorProvider } from '../translation/providers/localTranslato
 import type { WorkerClient } from '../worker/pythonWorkerClient'
 import { WorkerError } from '../worker/errors'
 
+const TRANSLATION_MAX_ATTEMPTS = 2
+
 export class PipelineOrchestrator {
   constructor(
     private readonly repository: JobRepository,
@@ -145,16 +147,45 @@ export class PipelineOrchestrator {
         (segment) => segment.sourceText && segment.sourceText.trim().length > 0,
       )
 
-      const translations = await this.translatorProvider.translateSegments({
-        sourceLanguage,
-        targetLanguage: 'ko',
-        segments: translatableSegments.map((segment) => ({
-          sequence: segment.sequence,
-          sourceText: segment.sourceText ?? '',
-        })),
-      })
+      let lastValidationError: WorkerError | null = null
+      let translations: Array<{ sequence: number; translatedText: string }> = []
 
-      validateTranslationResult(translatableSegments, translations)
+      for (let attempt = 1; attempt <= TRANSLATION_MAX_ATTEMPTS; attempt += 1) {
+        translations = await this.translatorProvider.translateSegments({
+          sourceLanguage,
+          targetLanguage: 'ko',
+          segments: translatableSegments.map((segment) => ({
+            sequence: segment.sequence,
+            sourceText: segment.sourceText ?? '',
+          })),
+        })
+
+        try {
+          validateTranslationResult(translatableSegments, translations, sourceLanguage)
+          lastValidationError = null
+          break
+        } catch (error) {
+          const workerError = normalizePipelineError(error, 'INVALID_TRANSLATION_RESULT')
+          lastValidationError = workerError
+
+          if (attempt < TRANSLATION_MAX_ATTEMPTS && shouldRetryTranslation(workerError)) {
+            this.repository.addEvent({
+              jobId,
+              step,
+              level: 'WARNING',
+              message: `Translation validation failed on attempt ${attempt}. Retrying once. (${workerError.message})`,
+            })
+            continue
+          }
+
+          throw workerError
+        }
+      }
+
+      if (lastValidationError) {
+        throw lastValidationError
+      }
+
       this.segmentRepository.updateTranslations(jobId, translations)
 
       this.repository.updateProgress(jobId, 70, step)
@@ -316,6 +347,7 @@ export class PipelineOrchestrator {
 function validateTranslationResult(
   sourceSegments: Segment[],
   translatedSegments: Array<{ sequence: number; translatedText: string }>,
+  sourceLanguage: SourceLanguage,
 ): void {
   const expectedSequences = sourceSegments.map((segment) => segment.sequence)
   const actualSequences = translatedSegments.map((segment) => segment.sequence)
@@ -338,6 +370,44 @@ function validateTranslationResult(
   if (translatedSegments.some((segment) => !segment.translatedText || !segment.translatedText.trim())) {
     throw new WorkerError('INVALID_TRANSLATION_RESULT', 'Translated text cannot be empty.')
   }
+
+  const sourceBySequence = new Map(sourceSegments.map((segment) => [segment.sequence, segment.sourceText ?? '']))
+  for (const translated of translatedSegments) {
+    const sourceText = sourceBySequence.get(translated.sequence) ?? ''
+    if (isLikelyUntranslated(sourceText, translated.translatedText, sourceLanguage)) {
+      throw new WorkerError(
+        'INVALID_TRANSLATION_RESULT',
+        `Translation appears unchanged for sequence ${translated.sequence}.`,
+      )
+    }
+  }
+}
+
+function isLikelyUntranslated(sourceText: string, translatedText: string, sourceLanguage: SourceLanguage): boolean {
+  const normalizedSource = normalizeComparableText(sourceText)
+  const normalizedTranslated = normalizeComparableText(translatedText)
+
+  if (!normalizedSource || !normalizedTranslated) {
+    return false
+  }
+
+  if (normalizedSource !== normalizedTranslated) {
+    return false
+  }
+
+  if (sourceLanguage === 'ja') {
+    return true
+  }
+
+  return normalizedSource.length >= 8
+}
+
+function normalizeComparableText(text: string): string {
+  return text
+    .normalize('NFKC')
+    .replace(/\s+/g, '')
+    .replace(/[.,!?;:，。！？、"'()\[\]{}<>~`-]/g, '')
+    .trim()
 }
 
 function normalizeWorkerError(error: unknown): WorkerError {
@@ -358,4 +428,14 @@ function normalizePipelineError(error: unknown, fallbackCode: string): WorkerErr
     return new WorkerError(fallbackCode, error.message)
   }
   return new WorkerError(fallbackCode, 'Pipeline step failed unexpectedly.')
+}
+
+function shouldRetryTranslation(error: WorkerError): boolean {
+  if (error.code === 'INVALID_TRANSLATION_RESULT') {
+    return true
+  }
+  if (error.code === 'TRANSLATION_TIMEOUT') {
+    return true
+  }
+  return false
 }
