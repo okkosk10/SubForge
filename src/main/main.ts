@@ -7,11 +7,14 @@ import { JobRepository } from './jobs/jobRepository'
 import { JobScheduler } from './jobs/jobScheduler'
 import { JobService } from './jobs/jobService'
 import { registerIpcHandlers } from './ipc/registerIpcHandlers'
+import { PipelineOrchestrator } from './pipeline/pipelineOrchestrator'
+import { PythonWorkerClient } from './worker/pythonWorkerClient'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
 let dbClient: DbClient | null = null
+let workerClient: PythonWorkerClient | null = null
 
 function createWindow(): void {
   const preloadPath = resolvePreloadPath()
@@ -42,7 +45,11 @@ app.whenReady().then(() => {
 
   const repository = new JobRepository(dbClient.connection)
   const scheduler = new JobScheduler()
-  const service = new JobService(repository, scheduler)
+  workerClient = new PythonWorkerClient()
+  const orchestrator = new PipelineOrchestrator(repository, workerClient)
+  const service = new JobService(repository, scheduler, orchestrator)
+  service.recoverInterruptedJobs()
+  service.triggerScheduler()
   registerIpcHandlers(ipcMain, service)
 
   createWindow()
@@ -64,6 +71,8 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  workerClient?.dispose()
+  workerClient = null
   dbClient?.close()
 })
 

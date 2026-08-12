@@ -6,11 +6,46 @@ import { DbClient } from '../../db/database'
 import { JobRepository } from '../jobRepository'
 import { JobScheduler } from '../jobScheduler'
 import { JobService } from '../jobService'
+import { PipelineOrchestrator } from '../../pipeline/pipelineOrchestrator'
+import type { WorkerClient } from '../../worker/pythonWorkerClient'
+import { WorkerError } from '../../worker/errors'
 
 let tempDir = ''
 let db: DbClient | null = null
 let repository: JobRepository
 let service: JobService
+
+class FakeWorkerClient implements WorkerClient {
+  constructor(private readonly mode: 'success' | 'failure' = 'success') {}
+
+  dispose(): void {
+    // no-op
+  }
+
+  async probe(): Promise<import('@shared/domain').ProbeMetadata> {
+    if (this.mode === 'failure') {
+      throw new WorkerError('FFPROBE_FAILED', 'Failed to probe media file.')
+    }
+
+    return {
+      durationMs: 1000,
+      formatName: 'mp4',
+      sizeBytes: 100,
+      bitRate: 80,
+      video: {
+        codec: 'h264',
+        width: 1920,
+        height: 1080,
+        fps: 30,
+      },
+      audio: {
+        codec: 'aac',
+        sampleRate: 48000,
+        channels: 2,
+      },
+    }
+  }
+}
 
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subforge-test-'))
@@ -129,5 +164,82 @@ describe('JobService', () => {
     expect(snapshot.runningJobs[0]?.id).toBe(running.id)
     expect(snapshot.waitingJobs.length).toBe(1)
     expect(snapshot.nextJob).toBeNull()
+  })
+
+  it('recovers interrupted running jobs to waiting on startup recovery', () => {
+    const sourcePath = createMediaFile('recover.mp4')
+    const job = repository.insert({
+      sourcePath,
+      outputPath: sourcePath.replace('.mp4', '.ko.srt'),
+      sourceLanguage: 'ja',
+      targetLanguage: 'ko',
+    })
+
+    db?.connection
+      .prepare(
+        `UPDATE jobs
+         SET status = 'RUNNING',
+             current_step = 'PROBING',
+             progress = 42,
+             started_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(new Date().toISOString(), new Date().toISOString(), job.id)
+
+    const recoveredCount = service.recoverInterruptedJobs()
+    const recovered = repository.getById(job.id)
+    const events = repository.getEvents(job.id)
+
+    expect(recoveredCount).toBe(1)
+    expect(recovered?.status).toBe('WAITING')
+    expect(recovered?.currentStep).toBeNull()
+    expect(recovered?.progress).toBe(0)
+    expect(events.some((event) => event.level === 'WARNING')).toBe(true)
+    expect(
+      events.some((event) => event.message.includes('Recovered interrupted job after application restart.')),
+    ).toBe(true)
+  })
+
+  it('starts waiting job on tick with RUNNING/PROBING transition', async () => {
+    const sourcePath = createMediaFile('tick.mp4')
+    const waiting = repository.insert({
+      sourcePath,
+      outputPath: sourcePath.replace('.mp4', '.ko.srt'),
+      sourceLanguage: 'ja',
+      targetLanguage: 'ko',
+    })
+
+    const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'))
+    const runService = new JobService(repository, new JobScheduler(), orchestrator)
+
+    await runService.tick()
+
+    const updated = repository.getById(waiting.id)
+    expect(updated?.status).toBe('RUNNING')
+    expect(updated?.currentStep).toBe('PROBING')
+
+    const events = repository.getEvents(waiting.id)
+    expect(events.some((event) => event.message === 'Media probing completed.')).toBe(true)
+  })
+
+  it('marks failed when probing fails on tick', async () => {
+    const sourcePath = createMediaFile('tick-fail.mp4')
+    const waiting = repository.insert({
+      sourcePath,
+      outputPath: sourcePath.replace('.mp4', '.ko.srt'),
+      sourceLanguage: 'ja',
+      targetLanguage: 'ko',
+    })
+
+    const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('failure'))
+    const runService = new JobService(repository, new JobScheduler(), orchestrator)
+
+    await expect(runService.tick()).rejects.toThrow('Failed to probe media file.')
+
+    const updated = repository.getById(waiting.id)
+    expect(updated?.status).toBe('FAILED')
+    expect(updated?.errorCode).toBe('FFPROBE_FAILED')
+    expect(updated?.errorMessage).toBe('Failed to probe media file.')
   })
 })

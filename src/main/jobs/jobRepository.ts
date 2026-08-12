@@ -159,6 +159,53 @@ export class JobRepository {
       .run(progress, step, new Date().toISOString(), jobId)
   }
 
+  markRunning(jobId: string, step: PipelineStep): void {
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `UPDATE jobs
+         SET status = 'RUNNING',
+             current_step = ?,
+             started_at = ?,
+             error_code = NULL,
+             error_message = NULL,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(step, now, now, jobId)
+  }
+
+  markFailed(jobId: string, code: string, message: string, step: PipelineStep | null): void {
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `UPDATE jobs
+         SET status = 'FAILED',
+             current_step = ?,
+             error_code = ?,
+             error_message = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(step, code, message, now, jobId)
+  }
+
+  resetRunningToWaiting(jobId: string): void {
+    this.db
+      .prepare(
+        `UPDATE jobs
+         SET status = 'WAITING',
+             current_step = NULL,
+             progress = 0,
+             started_at = NULL,
+             error_code = NULL,
+             error_message = NULL,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(new Date().toISOString(), jobId)
+  }
+
   addEvent(input: {
     jobId: string
     step?: PipelineStep | null

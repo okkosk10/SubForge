@@ -75,6 +75,56 @@ export interface SelectableMediaFile {
   suggestedOutputPath: string
 }
 
+export interface ProbeMetadata {
+  durationMs: number | null
+  formatName: string | null
+  sizeBytes: number | null
+  bitRate: number | null
+  video:
+    | {
+        codec: string | null
+        width: number | null
+        height: number | null
+        fps: number | null
+      }
+    | null
+  audio:
+    | {
+        codec: string | null
+        sampleRate: number | null
+        channels: number | null
+      }
+    | null
+}
+
+export type WorkerRequest =
+  | {
+      requestId: string
+      type: 'PROBE'
+      payload: {
+        sourcePath: string
+      }
+    }
+
+export type WorkerSuccessResponse = {
+  requestId: string
+  ok: true
+  type: 'PROBE_RESULT'
+  payload: ProbeMetadata
+}
+
+export type WorkerErrorResponse = {
+  requestId: string
+  ok: false
+  type: 'ERROR'
+  error: {
+    code: string
+    message: string
+  }
+}
+
+export type WorkerResponse = WorkerSuccessResponse | WorkerErrorResponse
+
 export const SOURCE_LANGUAGE_LABEL: Record<SourceLanguage, string> = {
   ja: 'Japanese',
   en: 'English',

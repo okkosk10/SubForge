@@ -5,11 +5,15 @@ import { SOURCE_LANGUAGES } from '@shared/domain'
 import { JobRepository } from './jobRepository'
 import { JobScheduler } from './jobScheduler'
 import { computeDefaultOutputPath, hasSupportedMediaExtension } from './policies'
+import type { PipelineOrchestrator } from '../pipeline/pipelineOrchestrator'
 
 export class JobService {
+  private isTicking = false
+
   constructor(
     private readonly repository: JobRepository,
     private readonly scheduler: JobScheduler,
+    private readonly orchestrator?: PipelineOrchestrator,
   ) {}
 
   list(status?: JobStatus): Job[] {
@@ -44,6 +48,8 @@ export class JobService {
       targetLanguage: 'ko',
     })
 
+    this.triggerScheduler()
+
     return job
   }
 
@@ -65,6 +71,44 @@ export class JobService {
       throw new Error('Progress must be between 0 and 100.')
     }
     this.repository.updateProgress(jobId, Math.round(progress), step)
+  }
+
+  recoverInterruptedJobs(): number {
+    const runningJobs = this.repository.list('RUNNING')
+    for (const job of runningJobs) {
+      this.repository.resetRunningToWaiting(job.id)
+      this.repository.addEvent({
+        jobId: job.id,
+        step: null,
+        level: 'WARNING',
+        message: 'Recovered interrupted job after application restart.',
+      })
+    }
+
+    return runningJobs.length
+  }
+
+  triggerScheduler(): void {
+    void this.tick()
+  }
+
+  async tick(): Promise<void> {
+    if (this.isTicking || !this.orchestrator) {
+      return
+    }
+
+    this.isTicking = true
+    try {
+      const snapshot = this.getQueueSnapshot()
+      const nextJob = this.scheduler.pickNext(snapshot.waitingJobs, snapshot.runningJobs)
+      if (!nextJob) {
+        return
+      }
+
+      await this.orchestrator.runProbe(nextJob.id, nextJob.sourcePath)
+    } finally {
+      this.isTicking = false
+    }
   }
 
   validateSelectedMedia(sourcePath: string): {
