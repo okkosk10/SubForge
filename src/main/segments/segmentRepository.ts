@@ -139,6 +139,44 @@ export class SegmentRepository {
     transaction()
   }
 
+  updateProcessedTranslations(
+    jobId: string,
+    translations: Array<{ sequence: number; translatedText: string }>,
+  ): void {
+    const normalized = translations.map((translation) => ({
+      sequence: Number(translation.sequence),
+      translatedText: String(translation.translatedText ?? '').trim(),
+    }))
+
+    const duplicates = normalized.filter(
+      (translation, index, list) => list.findIndex((value) => value.sequence === translation.sequence) !== index,
+    )
+    if (duplicates.length > 0) {
+      throw new WorkerError('POST_PROCESSING_FAILED', 'Duplicate translation sequences are not allowed.')
+    }
+
+    const transaction = this.db.transaction(() => {
+      const update = this.db.prepare(
+        `UPDATE segments
+         SET translated_text = ?, updated_at = ?
+         WHERE job_id = ? AND sequence = ?`,
+      )
+      const now = new Date().toISOString()
+
+      for (const translation of normalized) {
+        const result = update.run(translation.translatedText, now, jobId, translation.sequence)
+        if (result.changes === 0) {
+          throw new WorkerError(
+            'POST_PROCESSING_FAILED',
+            `No translated segment found for sequence ${translation.sequence}.`,
+          )
+        }
+      }
+    })
+
+    transaction()
+  }
+
   deleteByJobId(jobId: string): void {
     this.db.prepare('DELETE FROM segments WHERE job_id = ?').run(jobId)
   }

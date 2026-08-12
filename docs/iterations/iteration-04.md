@@ -16,6 +16,10 @@
 - Job Detail에서 원문 + 한국어 번역 표시
 - 테스트로 실패/성공/sequence validation 검증
 
+## Iteration 경계
+- Iteration 04는 의도적으로 `RUNNING / TRANSLATING` 단계까지를 범위로 한다.
+- 최종 `POST_PROCESSING -> VALIDATING -> EXPORTING -> COMPLETED` 흐름은 Iteration 05에서 완성된다.
+
 ## TranslatorProvider abstraction
 - SubForge 내부에는 `TranslatorProvider` 인터페이스만 노출한다.
 - Pipeline은 Provider 구현 세부사항을 알지 않는다.

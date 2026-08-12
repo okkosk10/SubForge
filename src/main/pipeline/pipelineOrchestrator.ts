@@ -1,6 +1,10 @@
+import path from 'node:path'
 import type { PipelineStep, Segment, SourceLanguage, TranscriptionSegment } from '@shared/domain'
 import type { JobRepository } from '../jobs/jobRepository'
 import type { SegmentRepository } from '../segments/segmentRepository'
+import { postProcessTranslatedSegments } from '../subtitles/subtitlePostProcessor'
+import { exportSegmentsToSrt } from '../subtitles/srtExporter'
+import { validateSegmentsForSrt } from '../subtitles/subtitleValidator'
 import type { TranslatorProvider } from '../translation/translatorProvider'
 import { LocalTranslatorProvider } from '../translation/providers/localTranslatorProvider'
 import type { WorkerClient } from '../worker/pythonWorkerClient'
@@ -18,6 +22,9 @@ export class PipelineOrchestrator {
     await this.runProbe(jobId, sourcePath)
     await this.runTranscription(jobId, sourcePath, sourceLanguage)
     await this.runTranslation(jobId, sourceLanguage)
+    await this.runPostProcessing(jobId)
+    await this.runValidation(jobId)
+    await this.runExport(jobId)
   }
 
   async runProbe(jobId: string, sourcePath: string): Promise<void> {
@@ -169,6 +176,141 @@ export class PipelineOrchestrator {
       throw workerError
     }
   }
+
+  async runPostProcessing(jobId: string): Promise<void> {
+    const step: PipelineStep = 'POST_PROCESSING'
+
+    this.repository.markRunning(jobId, step)
+    this.repository.addEvent({
+      jobId,
+      step,
+      level: 'INFO',
+      message: 'Subtitle post-processing started.',
+    })
+
+    try {
+      if (!this.segmentRepository) {
+        throw new WorkerError('POST_PROCESSING_FAILED', 'Segment repository is not configured.')
+      }
+
+      const segments = this.segmentRepository.listByJobId(jobId)
+      const processed = postProcessTranslatedSegments(segments)
+      this.segmentRepository.updateProcessedTranslations(jobId, processed)
+
+      this.repository.updateProgress(jobId, 80, step)
+      this.repository.addEvent({
+        jobId,
+        step,
+        level: 'INFO',
+        message: 'Subtitle post-processing completed.',
+      })
+    } catch (error) {
+      const pipelineError = normalizePipelineError(error, 'POST_PROCESSING_FAILED')
+      this.repository.markFailed(jobId, pipelineError.code, pipelineError.message, step)
+      this.repository.addEvent({
+        jobId,
+        step,
+        level: 'ERROR',
+        message: `Subtitle post-processing failed: ${pipelineError.message}`,
+      })
+      throw pipelineError
+    }
+  }
+
+  async runValidation(jobId: string): Promise<void> {
+    const step: PipelineStep = 'VALIDATING'
+
+    this.repository.markRunning(jobId, step)
+    this.repository.addEvent({
+      jobId,
+      step,
+      level: 'INFO',
+      message: 'Subtitle validation started.',
+    })
+
+    try {
+      if (!this.segmentRepository) {
+        throw new WorkerError('VALIDATION_FAILED', 'Segment repository is not configured.')
+      }
+
+      const segments = this.segmentRepository.listByJobId(jobId)
+      const validation = validateSegmentsForSrt(segments)
+      if (!validation.ok) {
+        const firstIssue = validation.issues[0]
+        throw new WorkerError('VALIDATION_FAILED', firstIssue?.message ?? 'Subtitle validation failed.')
+      }
+
+      this.repository.updateProgress(jobId, 90, step)
+      this.repository.addEvent({
+        jobId,
+        step,
+        level: 'INFO',
+        message: 'Subtitle validation completed.',
+      })
+    } catch (error) {
+      const pipelineError = normalizePipelineError(error, 'VALIDATION_FAILED')
+      this.repository.markFailed(jobId, pipelineError.code, pipelineError.message, step)
+      this.repository.addEvent({
+        jobId,
+        step,
+        level: 'ERROR',
+        message: `Subtitle validation failed: ${pipelineError.message}`,
+      })
+      throw pipelineError
+    }
+  }
+
+  async runExport(jobId: string): Promise<void> {
+    const step: PipelineStep = 'EXPORTING'
+
+    this.repository.markRunning(jobId, step)
+    this.repository.addEvent({
+      jobId,
+      step,
+      level: 'INFO',
+      message: 'Subtitle export started.',
+    })
+
+    try {
+      if (!this.segmentRepository) {
+        throw new WorkerError('EXPORT_FAILED', 'Segment repository is not configured.')
+      }
+
+      const job = this.repository.getById(jobId)
+      if (!job) {
+        throw new WorkerError('EXPORT_FAILED', 'Job not found for subtitle export.')
+      }
+
+      const segments = this.segmentRepository.listByJobId(jobId)
+      await exportSegmentsToSrt(job.outputPath, segments)
+
+      this.repository.updateProgress(jobId, 95, step)
+      this.repository.addEvent({
+        jobId,
+        step,
+        level: 'INFO',
+        message: `Subtitle export completed: ${path.basename(job.outputPath)}`,
+      })
+
+      this.repository.markCompleted(jobId, step)
+      this.repository.addEvent({
+        jobId,
+        step,
+        level: 'INFO',
+        message: 'Job completed successfully.',
+      })
+    } catch (error) {
+      const pipelineError = normalizePipelineError(error, 'EXPORT_FAILED')
+      this.repository.markFailed(jobId, pipelineError.code, pipelineError.message, step)
+      this.repository.addEvent({
+        jobId,
+        step,
+        level: 'ERROR',
+        message: `Subtitle export failed: ${pipelineError.message}`,
+      })
+      throw pipelineError
+    }
+  }
 }
 
 function validateTranslationResult(
@@ -206,4 +348,14 @@ function normalizeWorkerError(error: unknown): WorkerError {
     return new WorkerError('WORKER_EXITED', error.message)
   }
   return new WorkerError('WORKER_EXITED', 'Worker process failed unexpectedly.')
+}
+
+function normalizePipelineError(error: unknown, fallbackCode: string): WorkerError {
+  if (error instanceof WorkerError) {
+    return error
+  }
+  if (error instanceof Error) {
+    return new WorkerError(fallbackCode, error.message)
+  }
+  return new WorkerError(fallbackCode, 'Pipeline step failed unexpectedly.')
 }

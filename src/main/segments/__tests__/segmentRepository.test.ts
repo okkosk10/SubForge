@@ -94,4 +94,28 @@ describe('SegmentRepository', () => {
       db.close()
     }
   })
+
+  it('updates post-processed translations without changing source/timestamp fields', () => {
+    const db = new DbClient(':memory:')
+    try {
+      const repository = new SegmentRepository(db.connection)
+      ensureJob(db.connection, 'job-4')
+      repository.replaceForJob('job-4', [
+        { sequence: 0, startMs: 610, endMs: 3590, text: 'こんにちは。今日は少し早く起きました。' },
+      ])
+      repository.updateTranslations('job-4', [{ sequence: 0, translatedText: '안녕하세요.오늘은   조금 일찍 일어났어요.' }])
+
+      repository.updateProcessedTranslations('job-4', [
+        { sequence: 0, translatedText: '안녕하세요. 오늘은 조금 일찍 일어났어요.' },
+      ])
+
+      const list = repository.listByJobId('job-4')
+      expect(list[0]?.sourceText).toBe('こんにちは。今日は少し早く起きました。')
+      expect(list[0]?.startMs).toBe(610)
+      expect(list[0]?.endMs).toBe(3590)
+      expect(list[0]?.translatedText).toBe('안녕하세요. 오늘은 조금 일찍 일어났어요.')
+    } finally {
+      db.close()
+    }
+  })
 })

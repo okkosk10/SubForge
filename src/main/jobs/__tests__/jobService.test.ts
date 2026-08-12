@@ -281,13 +281,18 @@ describe('JobService', () => {
     await runService.tick()
 
     const updated = repository.getById(waiting.id)
-    expect(updated?.status).toBe('RUNNING')
-    expect(updated?.currentStep).toBe('TRANSLATING')
+    expect(updated?.status).toBe('COMPLETED')
+    expect(updated?.currentStep).toBe('EXPORTING')
+    expect(updated?.progress).toBe(100)
+    expect(updated?.completedAt).not.toBeNull()
 
     const events = repository.getEvents(waiting.id)
     expect(events.some((event) => event.message === 'Media probing completed.')).toBe(true)
     expect(events.some((event) => event.message.includes('Transcription completed.'))).toBe(true)
     expect(events.some((event) => event.message.includes('Translation completed.'))).toBe(true)
+    expect(events.some((event) => event.message === 'Subtitle post-processing completed.')).toBe(true)
+    expect(events.some((event) => event.message === 'Subtitle validation completed.')).toBe(true)
+    expect(events.some((event) => event.message.includes('Subtitle export completed:'))).toBe(true)
   })
 
   it('marks failed when probing fails on tick', async () => {
@@ -361,12 +366,79 @@ describe('JobService', () => {
 
     await expect(runService.tick()).rejects.toThrow('First probe failed.')
 
+    const firstUpdated = repository.getById(first.id)
+    const secondUpdated = repository.getById(second.id)
+    expect(firstUpdated?.status).toBe('FAILED')
+    expect(secondUpdated?.status).toBe('COMPLETED')
+    expect(secondUpdated?.currentStep).toBe('EXPORTING')
+    expect(secondUpdated?.progress).toBe(100)
+  })
+
+  it('continues queue after first job succeeds', async () => {
+    if (!db) {
+      throw new Error('Database was not initialized.')
+    }
+
+    const firstPath = createMediaFile('queue-a.mp4')
+    const secondPath = createMediaFile('queue-b.mp4')
+
+    const first = repository.insert({
+      sourcePath: firstPath,
+      outputPath: firstPath.replace('.mp4', '.ko.srt'),
+      sourceLanguage: 'ja',
+      targetLanguage: 'ko',
+    })
+
+    const second = repository.insert({
+      sourcePath: secondPath,
+      outputPath: secondPath.replace('.mp4', '.ko.srt'),
+      sourceLanguage: 'en',
+      targetLanguage: 'ko',
+    })
+
+    const segmentRepository = new SegmentRepository(db.connection)
+    const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'), segmentRepository)
+    const runService = new JobService(repository, new JobScheduler(), orchestrator, segmentRepository)
+
     await runService.tick()
 
     const firstUpdated = repository.getById(first.id)
     const secondUpdated = repository.getById(second.id)
+    expect(firstUpdated?.status).toBe('COMPLETED')
+    expect(secondUpdated?.status).toBe('COMPLETED')
+  })
+
+  it('keeps failure isolation and still processes next waiting job', async () => {
+    if (!db) {
+      throw new Error('Database was not initialized.')
+    }
+
+    const firstPath = createMediaFile('isolation-a.mp4')
+    const secondPath = createMediaFile('isolation-b.mp4')
+
+    const first = repository.insert({
+      sourcePath: firstPath,
+      outputPath: firstPath.replace('.mp4', '.ko.srt'),
+      sourceLanguage: 'ja',
+      targetLanguage: 'ko',
+    })
+
+    const second = repository.insert({
+      sourcePath: secondPath,
+      outputPath: secondPath.replace('.mp4', '.ko.srt'),
+      sourceLanguage: 'en',
+      targetLanguage: 'ko',
+    })
+
+    const segmentRepository = new SegmentRepository(db.connection)
+    const orchestrator = new PipelineOrchestrator(repository, new FailOnceWorkerClient(), segmentRepository)
+    const runService = new JobService(repository, new JobScheduler(), orchestrator, segmentRepository)
+
+    await expect(runService.tick()).rejects.toThrow('First probe failed.')
+
+    const firstUpdated = repository.getById(first.id)
+    const secondUpdated = repository.getById(second.id)
     expect(firstUpdated?.status).toBe('FAILED')
-    expect(secondUpdated?.status).toBe('RUNNING')
-    expect(secondUpdated?.currentStep).toBe('TRANSLATING')
+    expect(secondUpdated?.status).toBe('COMPLETED')
   })
 })

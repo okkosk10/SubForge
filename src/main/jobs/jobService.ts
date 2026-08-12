@@ -103,16 +103,29 @@ export class JobService {
     }
 
     this.isTicking = true
+    let firstError: unknown = null
     try {
-      const snapshot = this.getQueueSnapshot()
-      const nextJob = this.scheduler.pickNext(snapshot.waitingJobs, snapshot.runningJobs)
-      if (!nextJob) {
-        return
-      }
+      while (true) {
+        const snapshot = this.getQueueSnapshot()
+        const nextJob = this.scheduler.pickNext(snapshot.waitingJobs, snapshot.runningJobs)
+        if (!nextJob) {
+          break
+        }
 
-      await this.orchestrator.run(nextJob.id, nextJob.sourcePath, nextJob.sourceLanguage)
+        try {
+          await this.orchestrator.run(nextJob.id, nextJob.sourcePath, nextJob.sourceLanguage)
+        } catch (error) {
+          if (!firstError) {
+            firstError = error
+          }
+        }
+      }
     } finally {
       this.isTicking = false
+    }
+
+    if (firstError) {
+      throw firstError
     }
   }
 

@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DbClient } from '../../db/database'
 import { JobRepository } from '../../jobs/jobRepository'
@@ -52,9 +55,15 @@ class FakeWorkerClient implements WorkerClient {
       segments: [
         {
           sequence: 0,
-          startMs: 1200,
-          endMs: 4150,
+          startMs: 610,
+          endMs: 3590,
           text: 'こんにちは。今日は少し早く起きました。',
+        },
+        {
+          sequence: 1,
+          startMs: 8410,
+          endMs: 10430,
+          text: '午前中は家で仕事をしていました。',
         },
       ],
     }
@@ -198,6 +207,135 @@ describe('PipelineOrchestrator', () => {
       expect(job?.errorCode).toBe('TRANSLATION_FAILED')
       expect(job?.errorMessage).toBe('Translation failed.')
     } finally {
+      db.close()
+    }
+  })
+
+  it('completes full pipeline and exports SRT before marking COMPLETED', async () => {
+    const db = new DbClient(':memory:')
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subforge-pipeline-'))
+    try {
+      const sourcePath = path.join(tempDir, 'demo-ja.mp4')
+      const outputPath = path.join(tempDir, 'demo-ja.ko.srt')
+      fs.writeFileSync(sourcePath, 'dummy media')
+
+      const repository = new JobRepository(db.connection)
+      const created = repository.insert({
+        sourcePath,
+        outputPath,
+        sourceLanguage: 'ja',
+        targetLanguage: 'ko',
+      })
+      const segmentRepository = new (await import('../../segments/segmentRepository')).SegmentRepository(db.connection)
+      const translator = new FakeTranslatorProvider([
+        { sequence: 0, translatedText: '안녕하세요.오늘은   조금 일찍 일어났어요.' },
+        { sequence: 1, translatedText: '오전에는 집에서 일을 하고 있었어요.' },
+      ])
+      const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'), segmentRepository, translator)
+
+      await orchestrator.run(created.id, sourcePath, 'ja')
+
+      const job = repository.getById(created.id)
+      expect(job?.status).toBe('COMPLETED')
+      expect(job?.currentStep).toBe('EXPORTING')
+      expect(job?.progress).toBe(100)
+      expect(job?.completedAt).not.toBeNull()
+
+      const events = repository.getEvents(created.id)
+      expect(events.some((event) => event.message === 'Subtitle post-processing started.')).toBe(true)
+      expect(events.some((event) => event.message === 'Subtitle post-processing completed.')).toBe(true)
+      expect(events.some((event) => event.message === 'Subtitle validation started.')).toBe(true)
+      expect(events.some((event) => event.message === 'Subtitle validation completed.')).toBe(true)
+      expect(events.some((event) => event.message === 'Subtitle export started.')).toBe(true)
+      expect(events.some((event) => event.message.includes('Subtitle export completed:'))).toBe(true)
+
+      expect(fs.existsSync(outputPath)).toBe(true)
+      const exported = fs.readFileSync(outputPath, 'utf8')
+      expect(exported).toContain('1\n00:00:00,610 --> 00:00:03,590\n안녕하세요. 오늘은 조금 일찍 일어났어요.')
+      expect(exported).toContain('2\n00:00:08,410 --> 00:00:10,430\n오전에는 집에서 일을 하고 있었어요.')
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+      db.close()
+    }
+  })
+
+  it('fails at VALIDATING with VALIDATION_FAILED when translated text is missing', async () => {
+    const db = new DbClient(':memory:')
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subforge-validate-'))
+    try {
+      const sourcePath = path.join(tempDir, 'demo.mp4')
+      const outputPath = path.join(tempDir, 'demo.ko.srt')
+      fs.writeFileSync(sourcePath, 'dummy media')
+
+      const repository = new JobRepository(db.connection)
+      const created = repository.insert({
+        sourcePath,
+        outputPath,
+        sourceLanguage: 'ja',
+        targetLanguage: 'ko',
+      })
+      const segmentRepository = new (await import('../../segments/segmentRepository')).SegmentRepository(db.connection)
+      segmentRepository.replaceForJob(created.id, [{ sequence: 0, startMs: 0, endMs: 1000, text: 'こんにちは。' }])
+      const translator = new FakeTranslatorProvider([{ sequence: 0, translatedText: '   ' }])
+      const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'), segmentRepository, translator)
+
+      await expect(orchestrator.run(created.id, sourcePath, 'ja')).rejects.toThrow()
+
+      const job = repository.getById(created.id)
+      expect(job?.status).toBe('FAILED')
+      expect(job?.currentStep).toBe('TRANSLATING')
+      expect(job?.errorCode).toBe('INVALID_TRANSLATION_RESULT')
+      expect(fs.existsSync(outputPath)).toBe(false)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+      db.close()
+    }
+  })
+
+  it('fails at VALIDATING for invalid timestamp and does not create output file', async () => {
+    const db = new DbClient(':memory:')
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'subforge-invalid-time-'))
+    try {
+      const sourcePath = path.join(tempDir, 'demo.mp4')
+      const outputPath = path.join(tempDir, 'demo.ko.srt')
+      fs.writeFileSync(sourcePath, 'dummy media')
+
+      const repository = new JobRepository(db.connection)
+      const created = repository.insert({
+        sourcePath,
+        outputPath,
+        sourceLanguage: 'ja',
+        targetLanguage: 'ko',
+      })
+      const segmentRepository = new (await import('../../segments/segmentRepository')).SegmentRepository(db.connection)
+      const now = new Date().toISOString()
+      db.connection
+        .prepare(
+          `INSERT INTO segments (id, job_id, sequence, start_ms, end_ms, source_text, translated_text, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          'invalid-segment-1',
+          created.id,
+          0,
+          2000,
+          1000,
+          'こんにちは。',
+          '안녕하세요.',
+          now,
+          now,
+        )
+
+      const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'), segmentRepository)
+      await expect(orchestrator.runValidation(created.id)).rejects.toThrow('Segment 0 has non-positive duration.')
+
+      const job = repository.getById(created.id)
+      expect(job?.status).toBe('FAILED')
+      expect(job?.currentStep).toBe('VALIDATING')
+      expect(job?.errorCode).toBe('VALIDATION_FAILED')
+      expect(fs.existsSync(outputPath)).toBe(false)
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true })
       db.close()
     }
   })

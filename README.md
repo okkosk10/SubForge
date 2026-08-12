@@ -2,7 +2,7 @@
 
 SubForge는 외국어 미디어 파일을 한국어 SRT로 처리하기 위한 데스크톱 애플리케이션이다.
 
-Iteration 01의 목표는 AI 파이프라인 기능 구현이 아니라, 다음 확장을 안정적으로 수용하는 기술 골격 검증이다.
+현재 MVP 목표는 단일 미디어 파일을 한국어 SRT로 end-to-end 처리하는 것이다.
 
 - Electron + React + TypeScript 앱 구조
 - Main / Preload / Renderer 분리
@@ -55,16 +55,27 @@ docs/
   iterations/ # iteration 단위 기록
 ```
 
-## 현재 범위 (Iteration 01)
+## 현재 MVP Flow
+Media File
+-> Probe
+-> Whisper Transcription
+-> Translation
+-> PostProcess
+-> Validation
+-> Korean SRT Export
+
+## 현재 범위
 구현됨:
 - Media file picker 기반 Job 생성
 - source language 선택 (`ja`, `en`, `ru`, `zh`)
 - Jobs 목록/필터/상세
 - SQLite migration + Job/Event/Segment 스키마
 - Queue scheduler 단일 동시성 구조
+- Pipeline: `PROBING -> TRANSCRIBING -> TRANSLATING -> POST_PROCESSING -> VALIDATING -> EXPORTING -> COMPLETED`
+- UTF-8 `.ko.srt` 파일 export
 
 미구현 (의도된 범위 제외):
-- Whisper / FFmpeg / VAD / STT / 번역 / SRT 생성
+- 고급 품질 보정(반복 제거, 의미 재작성, AI 후처리)
 - Folder batch import
 - DriveAtlas integration
 - 고급 편집 UI
