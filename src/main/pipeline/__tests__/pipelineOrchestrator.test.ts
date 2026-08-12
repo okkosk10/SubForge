@@ -107,4 +107,23 @@ describe('PipelineOrchestrator', () => {
       db.close()
     }
   })
+
+  it('finalizes a successful transcription job as COMPLETED with 100% progress', async () => {
+    const db = new DbClient(':memory:')
+    try {
+      const repository = new JobRepository(db.connection)
+      const created = seedWaitingJob(repository)
+      const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'))
+
+      await orchestrator.run(created.id, created.sourcePath, 'ja')
+
+      const job = repository.getById(created.id)
+      expect(job?.status).toBe('COMPLETED')
+      expect(job?.currentStep).toBe('TRANSCRIBING')
+      expect(job?.progress).toBe(100)
+      expect(job?.completedAt).not.toBeNull()
+    } finally {
+      db.close()
+    }
+  })
 })

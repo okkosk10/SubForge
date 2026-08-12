@@ -86,12 +86,14 @@ export class PipelineOrchestrator {
         )
       }
 
+      this.repository.markCompleted(jobId, step)
       this.repository.addEvent({
         jobId,
         step,
         level: 'INFO',
         message: `Transcription completed. ${segments.length} segments saved.`,
       })
+      this.repository.updateProgress(jobId, 100, step)
     } catch (error) {
       const workerError = normalizeWorkerError(error)
       this.repository.markFailed(jobId, workerError.code, workerError.message, step)

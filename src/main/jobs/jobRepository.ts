@@ -190,6 +190,21 @@ export class JobRepository {
       .run(step, code, message, now, jobId)
   }
 
+  markCompleted(jobId: string, step: PipelineStep | null): void {
+    const now = new Date().toISOString()
+    this.db
+      .prepare(
+        `UPDATE jobs
+         SET status = 'COMPLETED',
+             current_step = ?,
+             progress = 100,
+             completed_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(step, now, now, jobId)
+  }
+
   resetRunningToWaiting(jobId: string): void {
     this.db
       .prepare(
