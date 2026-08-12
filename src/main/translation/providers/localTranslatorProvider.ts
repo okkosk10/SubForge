@@ -86,6 +86,7 @@ export class LocalTranslatorProvider implements TranslatorProvider {
 
 function translateJapaneseToKorean(text: string): string {
   return text
+    .replace(/こんにちは\s*今日は友達とカフェに来ました。?/g, '안녕하세요. 오늘은 친구와 카페에 왔어요.')
     .replace(/こんにちは。/g, '안녕하세요.')
     .replace(/今日は少し早く起きました。/g, '오늘은 조금 일찍 일어났어요.')
     .replace(/午前中は家で仕事をしていました。/g, '오전에는 집에서 일을 하고 있었어요.')
