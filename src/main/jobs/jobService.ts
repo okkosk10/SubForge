@@ -89,7 +89,9 @@ export class JobService {
   }
 
   triggerScheduler(): void {
-    void this.tick()
+    void this.tick().catch((error) => {
+      console.error('[scheduler] tick failed', error)
+    })
   }
 
   async tick(): Promise<void> {

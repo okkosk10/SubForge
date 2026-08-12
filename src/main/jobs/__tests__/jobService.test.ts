@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DbClient } from '../../db/database'
 import { JobRepository } from '../jobRepository'
 import { JobScheduler } from '../jobScheduler'
@@ -25,6 +25,39 @@ class FakeWorkerClient implements WorkerClient {
   async probe(): Promise<import('@shared/domain').ProbeMetadata> {
     if (this.mode === 'failure') {
       throw new WorkerError('FFPROBE_FAILED', 'Failed to probe media file.')
+    }
+
+    return {
+      durationMs: 1000,
+      formatName: 'mp4',
+      sizeBytes: 100,
+      bitRate: 80,
+      video: {
+        codec: 'h264',
+        width: 1920,
+        height: 1080,
+        fps: 30,
+      },
+      audio: {
+        codec: 'aac',
+        sampleRate: 48000,
+        channels: 2,
+      },
+    }
+  }
+}
+
+class FailOnceWorkerClient implements WorkerClient {
+  private attempt = 0
+
+  dispose(): void {
+    // no-op
+  }
+
+  async probe(): Promise<import('@shared/domain').ProbeMetadata> {
+    this.attempt += 1
+    if (this.attempt === 1) {
+      throw new WorkerError('FFPROBE_FAILED', 'First probe failed.')
     }
 
     return {
@@ -241,5 +274,60 @@ describe('JobService', () => {
     expect(updated?.status).toBe('FAILED')
     expect(updated?.errorCode).toBe('FFPROBE_FAILED')
     expect(updated?.errorMessage).toBe('Failed to probe media file.')
+  })
+
+  it('catches triggerScheduler rejection and keeps process safe', async () => {
+    const sourcePath = createMediaFile('trigger-fail.mp4')
+    const waiting = repository.insert({
+      sourcePath,
+      outputPath: sourcePath.replace('.mp4', '.ko.srt'),
+      sourceLanguage: 'ja',
+      targetLanguage: 'ko',
+    })
+
+    const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('failure'))
+    const runService = new JobService(repository, new JobScheduler(), orchestrator)
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    runService.triggerScheduler()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const updated = repository.getById(waiting.id)
+    expect(updated?.status).toBe('FAILED')
+    expect(consoleSpy).toHaveBeenCalled()
+
+    consoleSpy.mockRestore()
+  })
+
+  it('releases tick lock after failure so next tick can run', async () => {
+    const firstPath = createMediaFile('first.mp4')
+    const secondPath = createMediaFile('second.mp4')
+
+    const first = repository.insert({
+      sourcePath: firstPath,
+      outputPath: firstPath.replace('.mp4', '.ko.srt'),
+      sourceLanguage: 'ja',
+      targetLanguage: 'ko',
+    })
+
+    const second = repository.insert({
+      sourcePath: secondPath,
+      outputPath: secondPath.replace('.mp4', '.ko.srt'),
+      sourceLanguage: 'en',
+      targetLanguage: 'ko',
+    })
+
+    const orchestrator = new PipelineOrchestrator(repository, new FailOnceWorkerClient())
+    const runService = new JobService(repository, new JobScheduler(), orchestrator)
+
+    await expect(runService.tick()).rejects.toThrow('First probe failed.')
+
+    await runService.tick()
+
+    const firstUpdated = repository.getById(first.id)
+    const secondUpdated = repository.getById(second.id)
+    expect(firstUpdated?.status).toBe('FAILED')
+    expect(secondUpdated?.status).toBe('RUNNING')
+    expect(secondUpdated?.currentStep).toBe('PROBING')
   })
 })

@@ -62,6 +62,11 @@ Iteration 02에서는 one-shot worker(process per request)를 채택했다.
 - pipeline orchestrator 상태 전이/실패 처리
 - JobService recovery/tick/single concurrency
 
+## 안정화 메모
+- scheduler fire-and-forget 경로에서 tick rejection을 내부 catch 처리해 unhandled rejection을 방지했다.
+- Python cache artifact(__pycache__/, *.pyc)를 .gitignore에 추가하고 추적 파일을 제거했다.
+- 실제 demo-ja.mp4 수동 probing은 로컬 ffprobe/python 설치 상태에 따라 실행한다.
+
 ## 미구현 범위
 Whisper, VAD, STT, Translation, SRT 생성, Segment 처리, Pipeline 후속 단계
 
