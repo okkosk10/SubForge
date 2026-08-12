@@ -118,8 +118,18 @@ export interface TranslationWorkerSegmentResult {
   translatedText: string
 }
 
+export interface TranslationWorkerTiming {
+  modelLoadMs?: number
+  inferenceMs?: number
+  totalMs: number
+}
+
 export interface TranslationWorkerResult {
   segments: TranslationWorkerSegmentResult[]
+  provider?: string
+  fallbackUsed?: boolean
+  fallbackReason?: string
+  timing?: TranslationWorkerTiming
 }
 
 export type WorkerRequest =

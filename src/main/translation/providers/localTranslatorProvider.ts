@@ -1,24 +1,43 @@
 import type { SourceLanguage, TargetLanguage } from '@shared/domain'
 import { WorkerError } from '../../worker/errors'
 import { PythonWorkerClient } from '../../worker/pythonWorkerClient'
-import type { TranslationSegmentInput, TranslationSegmentResult, TranslatorProvider } from '../translatorProvider'
+import type {
+  TranslationRunMetadata,
+  TranslationSegmentInput,
+  TranslationSegmentResult,
+  TranslatorProvider,
+} from '../translatorProvider'
 
 interface TranslationWorkerAdapter {
   translateSegments(input: {
     sourceLanguage: SourceLanguage
     targetLanguage: TargetLanguage
     segments: Array<{ sequence: number; text: string }>
-  }): Promise<{ segments: Array<{ sequence: number; translatedText: string }> }>
+  }): Promise<{
+    segments: Array<{ sequence: number; translatedText: string }>
+    provider?: string
+    fallbackUsed?: boolean
+    fallbackReason?: string
+    timing?: { modelLoadMs?: number; inferenceMs?: number; totalMs: number }
+  }>
 }
 
 export class LocalTranslatorProvider implements TranslatorProvider {
+  private lastMetadata: TranslationRunMetadata | null = null
+
   constructor(private readonly workerClient: TranslationWorkerAdapter = new PythonWorkerClient()) {}
+
+  getLastTranslationMetadata(): TranslationRunMetadata | null {
+    return this.lastMetadata
+  }
 
   async translateSegments(input: {
     sourceLanguage: SourceLanguage
     targetLanguage: 'ko'
     segments: TranslationSegmentInput[]
   }): Promise<TranslationSegmentResult[]> {
+    this.lastMetadata = null
+
     const trimmed = input.segments.filter((segment) => segment.sourceText && segment.sourceText.trim().length > 0)
     if (trimmed.length === 0) {
       return []
@@ -36,6 +55,13 @@ export class LocalTranslatorProvider implements TranslatorProvider {
 
       if (!Array.isArray(response.segments)) {
         throw new WorkerError('INVALID_TRANSLATION_RESULT', 'Translation response segments are missing.')
+      }
+
+      this.lastMetadata = {
+        provider: response.provider,
+        fallbackUsed: response.fallbackUsed,
+        fallbackReason: response.fallbackReason,
+        timing: response.timing,
       }
 
       return response.segments.map((segment) => ({

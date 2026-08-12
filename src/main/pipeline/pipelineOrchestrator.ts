@@ -159,6 +159,7 @@ export class PipelineOrchestrator {
             sourceText: segment.sourceText ?? '',
           })),
         })
+        this.appendTranslationProviderEvent(jobId, step)
 
         try {
           validateTranslationResult(translatableSegments, translations, sourceLanguage)
@@ -340,6 +341,47 @@ export class PipelineOrchestrator {
         message: `Subtitle export failed: ${pipelineError.message}`,
       })
       throw pipelineError
+    }
+  }
+
+  private appendTranslationProviderEvent(jobId: string, step: PipelineStep): void {
+    const metadata = this.translatorProvider.getLastTranslationMetadata?.()
+    if (!metadata || !metadata.provider) {
+      return
+    }
+
+    if (metadata.fallbackUsed) {
+      this.repository.addEvent({
+        jobId,
+        step,
+        level: 'WARNING',
+        message:
+          metadata.fallbackReason && metadata.fallbackReason.trim().length > 0
+            ? `Translation fallback used (${metadata.provider}): ${metadata.fallbackReason}`
+            : `Translation fallback used (${metadata.provider}).`,
+      })
+    } else {
+      this.repository.addEvent({
+        jobId,
+        step,
+        level: 'INFO',
+        message: `Translation provider: ${metadata.provider}.`,
+      })
+    }
+
+    if (metadata.timing) {
+      const timingParts = [
+        `totalMs=${metadata.timing.totalMs}`,
+        metadata.timing.modelLoadMs !== undefined ? `modelLoadMs=${metadata.timing.modelLoadMs}` : null,
+        metadata.timing.inferenceMs !== undefined ? `inferenceMs=${metadata.timing.inferenceMs}` : null,
+      ].filter((value): value is string => value !== null)
+
+      this.repository.addEvent({
+        jobId,
+        step,
+        level: 'INFO',
+        message: `Translation timing (${metadata.provider}): ${timingParts.join(' ')}`,
+      })
     }
   }
 }

@@ -74,6 +74,10 @@ Media File
 - Pipeline: `PROBING -> TRANSCRIBING -> TRANSLATING -> POST_PROCESSING -> VALIDATING -> EXPORTING -> COMPLETED`
 - UTF-8 `.ko.srt` 파일 export
 
+번역 엔진 메모:
+- 일본어(`ja`)는 local direct model `sappho192/aihub-ja-ko-translator`를 우선 사용하고, 실패 시 local Argos 경로로 fallback한다.
+- 모델/데이터 사용 조건은 해당 모델 카드 및 AIHub 안내를 확인한다.
+
 미구현 (의도된 범위 제외):
 - 고급 품질 보정(반복 제거, 의미 재작성, AI 후처리)
 - Folder batch import

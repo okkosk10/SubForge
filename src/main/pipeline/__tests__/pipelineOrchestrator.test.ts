@@ -32,6 +32,27 @@ class FlakyTranslatorProvider implements TranslatorProvider {
   }
 }
 
+class ObservableTranslatorProvider implements TranslatorProvider {
+  private metadata: import('../../translation/translatorProvider').TranslationRunMetadata | null = null
+
+  async translateSegments(): Promise<{ sequence: number; translatedText: string }[]> {
+    this.metadata = {
+      provider: 'aihub-ja-ko',
+      fallbackUsed: false,
+      timing: {
+        modelLoadMs: 1000,
+        inferenceMs: 120,
+        totalMs: 1120,
+      },
+    }
+    return [{ sequence: 0, translatedText: '테스트 번역' }]
+  }
+
+  getLastTranslationMetadata() {
+    return this.metadata
+  }
+}
+
 class FakeWorkerClient implements WorkerClient {
   constructor(private readonly behavior: 'success' | 'failure') {}
 
@@ -283,6 +304,33 @@ describe('PipelineOrchestrator', () => {
 
       const segments = segmentRepository.listByJobId(created.id)
       expect(segments[0]?.translatedText).toBe('안녕하세요. 오늘은 친구와 카페에 왔어요.')
+    } finally {
+      db.close()
+    }
+  })
+
+  it('records provider and timing metadata events from translator provider', async () => {
+    const db = new DbClient(':memory:')
+    try {
+      const repository = new JobRepository(db.connection)
+      const created = seedWaitingJob(repository)
+      const segmentRepository = new (await import('../../segments/segmentRepository')).SegmentRepository(db.connection)
+      segmentRepository.replaceForJob(created.id, [
+        { sequence: 0, startMs: 0, endMs: 1000, text: '明日は雨が降るかもしれません。' },
+      ])
+
+      const orchestrator = new PipelineOrchestrator(
+        repository,
+        new FakeWorkerClient('success'),
+        segmentRepository,
+        new ObservableTranslatorProvider(),
+      )
+
+      await orchestrator.runTranslation(created.id, 'ja')
+
+      const events = repository.getEvents(created.id)
+      expect(events.some((event) => event.message === 'Translation provider: aihub-ja-ko.')).toBe(true)
+      expect(events.some((event) => event.message.includes('Translation timing (aihub-ja-ko):'))).toBe(true)
     } finally {
       db.close()
     }

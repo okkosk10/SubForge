@@ -10,6 +10,13 @@ describe('LocalTranslatorProvider', () => {
           { sequence: 2, translatedText: '두 번째' },
           { sequence: 1, translatedText: '첫 번째' },
         ],
+        provider: 'aihub-ja-ko',
+        fallbackUsed: false,
+        timing: {
+          modelLoadMs: 1200,
+          inferenceMs: 80,
+          totalMs: 1280,
+        },
       }),
     })
 
@@ -26,6 +33,16 @@ describe('LocalTranslatorProvider', () => {
       { sequence: 2, translatedText: '두 번째' },
       { sequence: 1, translatedText: '첫 번째' },
     ])
+    expect(provider.getLastTranslationMetadata()).toEqual({
+      provider: 'aihub-ja-ko',
+      fallbackUsed: false,
+      fallbackReason: undefined,
+      timing: {
+        modelLoadMs: 1200,
+        inferenceMs: 80,
+        totalMs: 1280,
+      },
+    })
   })
 
   it('maps worker timeout to TRANSLATION_TIMEOUT', async () => {

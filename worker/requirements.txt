@@ -2,3 +2,7 @@
 faster-whisper==1.1.1
 requests>=2.31.0
 argostranslate==1.9.6
+transformers==5.15.0
+torch==2.13.0
+fugashi==1.5.2
+unidic-lite==1.0.8
