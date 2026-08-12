@@ -27,8 +27,9 @@
 
 ## 선택한 Provider
 - 현재 구현: `LocalTranslatorProvider`
-- 이유: 추가 설정 없이 현재 프로젝트 환경에서 바로 동작하는 방식이 필요했고, 외부 API key/설정이 준비되어 있지 않다.
 - 구조: `src/main/translation` 아래에 provider/interface/service 분리
+- 주의: Iteration 04 시점의 임시 번역 구현은 이후 Iteration 05 안정화에서 교체되었다.
+- 최종 방향: demo phrase 매핑이 아닌 local translation runtime adapter를 사용한다.
 
 ## Pipeline 변경
 1. WAITING -> RUNNING / PROBING

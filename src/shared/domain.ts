@@ -108,6 +108,20 @@ export interface TranscriptionResult {
   segments: TranscriptionSegment[]
 }
 
+export interface TranslationWorkerSegmentInput {
+  sequence: number
+  text: string
+}
+
+export interface TranslationWorkerSegmentResult {
+  sequence: number
+  translatedText: string
+}
+
+export interface TranslationWorkerResult {
+  segments: TranslationWorkerSegmentResult[]
+}
+
 export type WorkerRequest =
   | {
       requestId: string
@@ -124,6 +138,15 @@ export type WorkerRequest =
         sourceLanguage: SourceLanguage
       }
     }
+  | {
+      requestId: string
+      type: 'TRANSLATE'
+      payload: {
+        sourceLanguage: SourceLanguage
+        targetLanguage: TargetLanguage
+        segments: TranslationWorkerSegmentInput[]
+      }
+    }
 
 export type WorkerSuccessResponse =
   | {
@@ -137,6 +160,12 @@ export type WorkerSuccessResponse =
       ok: true
       type: 'TRANSCRIBE_RESULT'
       payload: TranscriptionResult
+    }
+  | {
+      requestId: string
+      ok: true
+      type: 'TRANSLATE_RESULT'
+      payload: TranslationWorkerResult
     }
 
 export type WorkerErrorResponse = {

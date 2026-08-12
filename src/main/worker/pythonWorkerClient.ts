@@ -3,12 +3,20 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import type { ProbeMetadata, SourceLanguage, TranscriptionResult, WorkerRequest } from '@shared/domain'
+import type {
+  ProbeMetadata,
+  SourceLanguage,
+  TargetLanguage,
+  TranscriptionResult,
+  TranslationWorkerResult,
+  WorkerRequest,
+} from '@shared/domain'
 import { WorkerError } from './errors'
 import { parseWorkerResponseLine } from './workerProtocol'
 
 const PROBE_TIMEOUT_MS = 30_000
 const TRANSCRIBE_TIMEOUT_MS = 30 * 60 * 1000
+const TRANSLATE_TIMEOUT_MS = 2 * 60 * 1000
 
 export interface WorkerClient {
   probe(sourcePath: string): Promise<ProbeMetadata>
@@ -64,6 +72,27 @@ export class PythonWorkerClient implements WorkerClient {
 
     const response = await this.runRequest<TranscriptionResult>(request, TRANSCRIBE_TIMEOUT_MS)
     return response
+  }
+
+  async translateSegments(input: {
+    sourceLanguage: SourceLanguage
+    targetLanguage: TargetLanguage
+    segments: Array<{ sequence: number; text: string }>
+  }): Promise<TranslationWorkerResult> {
+    const request: WorkerRequest = {
+      requestId: crypto.randomUUID(),
+      type: 'TRANSLATE',
+      payload: {
+        sourceLanguage: input.sourceLanguage,
+        targetLanguage: input.targetLanguage,
+        segments: input.segments.map((segment) => ({
+          sequence: Number(segment.sequence),
+          text: String(segment.text ?? ''),
+        })),
+      },
+    }
+
+    return await this.runRequest<TranslationWorkerResult>(request, TRANSLATE_TIMEOUT_MS)
   }
 
   private async runRequest<T>(request: WorkerRequest, timeoutMs: number): Promise<T> {

@@ -25,7 +25,7 @@ export function parseWorkerResponseLine(line: string): WorkerResponse {
   }
 
   if (value.ok) {
-    const allowedSuccessTypes = new Set(['PROBE_RESULT', 'TRANSCRIBE_RESULT'])
+    const allowedSuccessTypes = new Set(['PROBE_RESULT', 'TRANSCRIBE_RESULT', 'TRANSLATE_RESULT'])
     if (!allowedSuccessTypes.has(value.type)) {
       throw new WorkerError('WORKER_PROTOCOL_ERROR', 'Worker success response type is unsupported.')
     }

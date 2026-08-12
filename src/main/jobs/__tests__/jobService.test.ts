@@ -10,6 +10,7 @@ import { PipelineOrchestrator } from '../../pipeline/pipelineOrchestrator'
 import { SegmentRepository } from '../../segments/segmentRepository'
 import type { WorkerClient } from '../../worker/pythonWorkerClient'
 import { WorkerError } from '../../worker/errors'
+import type { TranslatorProvider } from '../../translation/translatorProvider'
 
 let tempDir = ''
 let db: DbClient | null = null
@@ -104,6 +105,19 @@ class FailOnceWorkerClient implements WorkerClient {
         },
       ],
     }
+  }
+}
+
+class FakeTranslatorProvider implements TranslatorProvider {
+  async translateSegments(input: {
+    sourceLanguage: import('@shared/domain').SourceLanguage
+    targetLanguage: 'ko'
+    segments: Array<{ sequence: number; sourceText: string }>
+  }): Promise<Array<{ sequence: number; translatedText: string }>> {
+    return input.segments.map((segment) => ({
+      sequence: segment.sequence,
+      translatedText: `ko:${segment.sourceText}`,
+    }))
   }
 }
 
@@ -275,7 +289,12 @@ describe('JobService', () => {
     })
 
     const segmentRepository = new SegmentRepository(db.connection)
-    const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'), segmentRepository)
+    const orchestrator = new PipelineOrchestrator(
+      repository,
+      new FakeWorkerClient('success'),
+      segmentRepository,
+      new FakeTranslatorProvider(),
+    )
     const runService = new JobService(repository, new JobScheduler(), orchestrator, segmentRepository)
 
     await runService.tick()
@@ -361,7 +380,12 @@ describe('JobService', () => {
     })
 
     const segmentRepository = new SegmentRepository(db.connection)
-    const orchestrator = new PipelineOrchestrator(repository, new FailOnceWorkerClient(), segmentRepository)
+    const orchestrator = new PipelineOrchestrator(
+      repository,
+      new FailOnceWorkerClient(),
+      segmentRepository,
+      new FakeTranslatorProvider(),
+    )
     const runService = new JobService(repository, new JobScheduler(), orchestrator, segmentRepository)
 
     await expect(runService.tick()).rejects.toThrow('First probe failed.')
@@ -397,7 +421,12 @@ describe('JobService', () => {
     })
 
     const segmentRepository = new SegmentRepository(db.connection)
-    const orchestrator = new PipelineOrchestrator(repository, new FakeWorkerClient('success'), segmentRepository)
+    const orchestrator = new PipelineOrchestrator(
+      repository,
+      new FakeWorkerClient('success'),
+      segmentRepository,
+      new FakeTranslatorProvider(),
+    )
     const runService = new JobService(repository, new JobScheduler(), orchestrator, segmentRepository)
 
     await runService.tick()
@@ -431,7 +460,12 @@ describe('JobService', () => {
     })
 
     const segmentRepository = new SegmentRepository(db.connection)
-    const orchestrator = new PipelineOrchestrator(repository, new FailOnceWorkerClient(), segmentRepository)
+    const orchestrator = new PipelineOrchestrator(
+      repository,
+      new FailOnceWorkerClient(),
+      segmentRepository,
+      new FakeTranslatorProvider(),
+    )
     const runService = new JobService(repository, new JobScheduler(), orchestrator, segmentRepository)
 
     await expect(runService.tick()).rejects.toThrow('First probe failed.')

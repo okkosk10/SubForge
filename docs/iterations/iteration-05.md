@@ -12,6 +12,14 @@
 - `subtitleValidator` 추가
 - `srtExporter` 추가 (`utf8` 저장)
 - Queue continuation 보강 (단일 동시성 유지)
+- Translation 안정화: demo-specific phrase mapping 제거
+- `LocalTranslatorProvider`를 Python Worker 기반 local model adapter로 교체
+
+## Translation 안정화 메모
+- production code에서 특정 일본어 문장을 한국어로 치환하는 `.replace()` 기반 하드코딩을 제거했다.
+- `LocalTranslatorProvider`는 Worker `TRANSLATE` 요청으로 실제 로컬 모델 번역 결과를 받는다.
+- 현재 로컬 엔진은 Argos Translate이며, `ja->ko`는 `ja->en->ko` pivot route를 사용한다.
+- 첫 실행 시 언어 패키지 다운로드가 발생할 수 있다.
 
 ## PostProcess 규칙
 - 앞뒤 공백 제거

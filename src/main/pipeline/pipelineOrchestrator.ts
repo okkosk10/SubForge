@@ -406,7 +406,7 @@ function normalizeComparableText(text: string): string {
   return text
     .normalize('NFKC')
     .replace(/\s+/g, '')
-    .replace(/[.,!?;:，。！？、"'()\[\]{}<>~`-]/g, '')
+    .replace(/[.,!?;:，。！？、"'(){}<>~`-]/g, '')
     .trim()
 }
 

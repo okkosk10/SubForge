@@ -49,6 +49,24 @@ describe('worker protocol parser', () => {
     }
   })
 
+  it('parses successful translate response', () => {
+    const line = JSON.stringify({
+      requestId: 'req-3',
+      ok: true,
+      type: 'TRANSLATE_RESULT',
+      payload: {
+        segments: [
+          { sequence: 0, translatedText: '내일은 비가 올지도 몰라요.' },
+          { sequence: 1, translatedText: '역에서 친구를 기다리고 있어요.' },
+        ],
+      },
+    })
+
+    const parsed = parseWorkerResponseLine(line)
+    expect(parsed.ok).toBe(true)
+    expect(parsed.requestId).toBe('req-3')
+  })
+
   it('throws on malformed json', () => {
     expect(() => parseWorkerResponseLine('{bad json')).toThrow('Worker returned malformed JSON response.')
   })
