@@ -52,6 +52,9 @@ app.whenReady().then(() => {
       createWindow()
     }
   })
+}).catch((error) => {
+  console.error('Failed to initialize SubForge main process.', error)
+  app.quit()
 })
 
 app.on('window-all-closed', () => {

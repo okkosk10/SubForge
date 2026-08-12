@@ -1,8 +1,11 @@
 import path from 'node:path'
 import fs from 'node:fs'
-import Database from 'better-sqlite3'
+import { createRequire } from 'node:module'
 import type { Database as SQLiteDatabase } from 'better-sqlite3'
 import { MIGRATIONS } from './migrations'
+
+const require = createRequire(import.meta.url)
+const BetterSqlite3 = require('better-sqlite3') as typeof import('better-sqlite3')
 
 export class DbClient {
   private db: SQLiteDatabase
@@ -10,7 +13,7 @@ export class DbClient {
   constructor(dbPath: string) {
     const directory = path.dirname(dbPath)
     fs.mkdirSync(directory, { recursive: true })
-    this.db = new Database(dbPath)
+    this.db = new BetterSqlite3(dbPath)
     this.db.pragma('foreign_keys = ON')
     this.runMigrations()
   }
