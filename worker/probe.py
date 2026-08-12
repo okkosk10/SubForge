@@ -107,6 +107,8 @@ def probe_media(source_path: str) -> Dict[str, Any]:
         command,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
 

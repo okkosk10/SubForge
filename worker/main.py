@@ -16,11 +16,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def parse_request(raw: str) -> Dict[str, Any]:
+def parse_request(raw: str | None) -> Dict[str, Any]:
+    if raw is None or not isinstance(raw, str):
+        raise ValueError("WORKER_PROTOCOL_ERROR:Request payload is missing or invalid")
+
     try:
         value = json.loads(raw)
-    except json.JSONDecodeError:
-        raise ValueError("WORKER_PROTOCOL_ERROR:Request JSON is malformed")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raise ValueError("WORKER_PROTOCOL_ERROR:Request JSON is malformed") from None
 
     if not isinstance(value, dict):
         raise ValueError("WORKER_PROTOCOL_ERROR:Request must be a JSON object")

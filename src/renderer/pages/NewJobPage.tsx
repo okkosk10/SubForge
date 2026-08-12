@@ -61,6 +61,11 @@ export function NewJobPage({ onJobCreated }: NewJobPageProps) {
           </button>
         </div>
 
+        <p className="muted">
+          Manual transcription test: pick demo-ja.mp4 (or any Japanese source video), choose Japanese,
+          then create the job to run PROBING → TRANSCRIBING.
+        </p>
+
         <div className="form-row">
           <label>Source Path</label>
           <input type="text" value={selectedSourcePath} readOnly placeholder="Select a media file." />

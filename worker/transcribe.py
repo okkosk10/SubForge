@@ -45,15 +45,23 @@ def _normalize_segments(raw_segments: Any) -> List[Dict[str, Any]]:
 
     normalized: List[Dict[str, Any]] = []
     for index, segment in enumerate(raw_segments):
-        if not isinstance(segment, dict):
-            continue
+        payload: Dict[str, Any]
 
-        text = str(segment.get("text") or "").strip()
+        if isinstance(segment, dict):
+            payload = segment
+        else:
+            payload = {
+                "text": getattr(segment, "text", None),
+                "start": getattr(segment, "start", None),
+                "end": getattr(segment, "end", None),
+            }
+
+        text = str(payload.get("text") or "").strip()
         if not text:
             continue
 
-        start_ms = round(_safe_float(segment.get("start"), 0.0) * 1000.0)
-        end_ms = round(_safe_float(segment.get("end"), 0.0) * 1000.0)
+        start_ms = round(_safe_float(payload.get("start"), 0.0) * 1000.0)
+        end_ms = round(_safe_float(payload.get("end"), 0.0) * 1000.0)
         if start_ms < 0 or end_ms <= start_ms:
             continue
 

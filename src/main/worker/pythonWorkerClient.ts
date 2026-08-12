@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -18,6 +19,16 @@ export interface WorkerClient {
 export interface PythonWorkerClientOptions {
   pythonExecutable?: string
   timeoutMs?: number
+}
+
+export function buildPythonEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    PYTHONUTF8: '1',
+    PYTHONIOENCODING: 'utf-8',
+    LANG: 'C.UTF-8',
+    LC_ALL: 'C.UTF-8',
+  }
 }
 
 export class PythonWorkerClient implements WorkerClient {
@@ -62,6 +73,7 @@ export class PythonWorkerClient implements WorkerClient {
     const child = spawn(this.pythonExecutable, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      env: buildPythonEnv(),
     })
 
     return await new Promise<T>((resolve, reject) => {
@@ -162,5 +174,19 @@ export function resolvePythonExecutable(): string {
 function resolveWorkerMainPath(): string {
   const currentFilePath = fileURLToPath(import.meta.url)
   const currentDir = path.dirname(currentFilePath)
-  return path.resolve(currentDir, '../../../worker/main.py')
+  const candidates = [
+    path.resolve(currentDir, '../../../worker/main.py'),
+    path.resolve(currentDir, '../../worker/main.py'),
+    path.resolve(currentDir, '../worker/main.py'),
+    path.resolve(process.cwd(), 'worker/main.py'),
+    path.resolve(process.cwd(), 'SubForge/worker/main.py'),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return candidates[0]
 }
